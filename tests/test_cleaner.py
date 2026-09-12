@@ -48,6 +48,7 @@ class OpenRouterCleanupTests(unittest.TestCase):
             payload["messages"][-1]["content"], "<transcription>um so yeah</transcription>"
         )
         response.raise_for_status.assert_called_once()
+        self.assertEqual(post.call_args.kwargs["timeout"], cleaner._CLOUD_TIMEOUT_SECONDS)
         self.assertEqual(result, "Cleaned.")
 
     def test_missing_key_raises_without_a_network_call(self):
@@ -77,6 +78,7 @@ class LocalCleanupTests(unittest.TestCase):
         self.assertEqual(post.call_args.args[0], "http://localhost:11434/v1/chat/completions")
         self.assertNotIn("Authorization", post.call_args.kwargs["headers"])
         self.assertEqual(post.call_args.kwargs["json"]["model"], "llama3.1")
+        self.assertEqual(post.call_args.kwargs["timeout"], cleaner._LOCAL_TIMEOUT_SECONDS)
         self.assertEqual(result, "Cleaned.")
 
     def test_connection_error_is_wrapped_with_a_clear_message(self):
@@ -86,6 +88,15 @@ class LocalCleanupTests(unittest.TestCase):
             patch("cleaner.requests.post", side_effect=requests.ConnectionError("refused")),
         ):
             with self.assertRaisesRegex(RuntimeError, "Could not reach the local cleanup model"):
+                cleaner.Cleaner().clean("um so yeah")
+
+    def test_timeout_is_wrapped_with_a_cold_start_hint(self):
+        with (
+            patch.object(config, "CLEANUP_PROVIDER", "local"),
+            patch.object(config, "LOCAL_CLEANUP_BASE_URL", "http://localhost:11434/v1"),
+            patch("cleaner.requests.post", side_effect=requests.Timeout("timed out")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "loading into"):
                 cleaner.Cleaner().clean("um so yeah")
 
 

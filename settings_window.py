@@ -2,6 +2,7 @@ import sys
 import threading
 from pathlib import Path
 
+import requests
 import webview
 
 import autostart
@@ -70,6 +71,22 @@ class SettingsAPI:
 
     def get_theme(self) -> dict:
         return theme_utils.theme_payload()
+
+    def get_local_models(self, base_url: str) -> dict:
+        """Live-query a local OpenAI-compatible server (e.g. Ollama) for the
+        models it actually has pulled, the same way get_devices() asks the
+        system for real audio devices instead of guessing at a fixed list."""
+        base_url = (base_url or "").strip().rstrip("/")
+        if not base_url:
+            return {"models": [], "error": "No server URL set."}
+        try:
+            resp = requests.get(f"{base_url}/models", timeout=3)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+            models = sorted(m["id"] for m in data if "id" in m)
+            return {"models": models, "error": None}
+        except Exception as exc:
+            return {"models": [], "error": str(exc)}
 
     def capture_hotkey(self) -> str:
         if hotkeys.capture_mode() == "select":

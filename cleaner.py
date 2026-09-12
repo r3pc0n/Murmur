@@ -41,6 +41,13 @@ _STYLE_PROMPTS = {
     "technical": "Preserve all technical terms, acronyms, and domain-specific jargon exactly as spoken. Do not simplify.",
 }
 
+# A cloud API is always warm. A local model (e.g. Ollama) has to load into
+# RAM on its first request after the server starts, which routinely takes
+# well past 30s on a CPU-only machine -- confirmed live: a cold qwen2.5:3b
+# load exceeded 30s, while a warm request completed in under 2s.
+_CLOUD_TIMEOUT_SECONDS = 30
+_LOCAL_TIMEOUT_SECONDS = 120
+
 
 def _build_system(language: str) -> str:
     base = config.CLEANUP_BASE_PROMPT.strip() if config.CLEANUP_BASE_PROMPT.strip() else DEFAULT_BASE_PROMPT
@@ -99,6 +106,7 @@ class Cleaner:
                     "HTTP-Referer": "https://murmurlabs.dev",
                     "X-Title": "Murmur",
                 },
+                timeout=_CLOUD_TIMEOUT_SECONDS,
             )
 
         if self._provider == "local":
@@ -110,15 +118,24 @@ class Cleaner:
                     system=system,
                     user_message=user_message,
                     headers={},
+                    timeout=_LOCAL_TIMEOUT_SECONDS,
                 )
             except requests.ConnectionError as exc:
                 raise RuntimeError(
                     f"Could not reach the local cleanup model at {base_url} -- is it running?"
                 ) from exc
+            except requests.Timeout as exc:
+                raise RuntimeError(
+                    f"Local cleanup model at {base_url} took longer than "
+                    f"{_LOCAL_TIMEOUT_SECONDS}s to respond -- it may still be loading into "
+                    "memory for the first time; try again in a moment."
+                ) from exc
 
         raise RuntimeError(f"Unknown cleanup provider: {self._provider!r}")
 
-    def _chat_completion(self, url: str, model: str, system: str, user_message: dict, headers: dict) -> str:
+    def _chat_completion(
+        self, url: str, model: str, system: str, user_message: dict, headers: dict, timeout: int
+    ) -> str:
         """Shared request/response shape for OpenRouter and any local
         OpenAI-compatible server (e.g. Ollama) -- both speak the same
         /chat/completions API, just with a different base URL and auth."""
@@ -134,7 +151,7 @@ class Cleaner:
                 ],
                 "max_tokens": 1024,
             },
-            timeout=30,
+            timeout=timeout,
         )
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"].strip()

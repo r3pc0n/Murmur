@@ -2,7 +2,7 @@
 
 **Free, local voice dictation for Windows and Linux.**
 
-Hold a key, speak, release. Murmur transcribes your voice using [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and pastes the result into whatever app you have focused. Optionally, Claude Haiku cleans up filler words and fixes punctuation before pasting.
+Hold a key, speak, release. Murmur transcribes your voice using [faster-whisper](https://github.com/SYSTRAN/faster-whisper) and pastes the result into whatever app you have focused. Optionally, an AI cleanup pass removes filler words and fixes punctuation before pasting.
 
 No subscription. No cloud. Your audio never leaves your machine - unless you choose to use a remote server you control yourself.
 
@@ -14,9 +14,9 @@ No subscription. No cloud. Your audio never leaves your machine - unless you cho
 - **Local transcription** - runs Whisper entirely on your own GPU or CPU, no internet required
 - **Remote transcription** - offload transcription to another machine over your local network, a VPN, or a reverse proxy
 - **Cloud transcription** - send audio to a third-party API (Mistral Voxtral, Groq, Deepgram, or Cartesia) for fast transcription on lower-end or older machines, no server of your own required
-- **AI cleanup** - Claude Haiku removes filler words, fixes punctuation and capitalization, and preserves your language (Dutch, English, or mixed)
+- **AI cleanup** - an OpenRouter model (Claude, GPT, Gemini, Llama, DeepSeek, Qwen, Mistral, or Amazon Nova) or your own local model (e.g. via Ollama) removes filler words, fixes punctuation and capitalization, and preserves your language (Dutch, English, or mixed)
 - **Style profiles** - choose Formal, Informal, Technical, or write your own style instruction
-- **User profile** - tell Haiku who you are so it can apply context to every transcription
+- **User profile** - tell the cleanup model who you are so it can apply context to every transcription
 - **Word corrections** - force correct spelling for names, terms or brand names Whisper gets wrong; applied even without AI cleanup
 - **Saved servers** - store multiple remote server configurations and switch between them instantly
 - **Audio device selection** - choose any input device from settings
@@ -93,7 +93,8 @@ Without usable CUDA, Murmur's built-in default runtime falls back to CPU transcr
 
 | Dependency | Notes | Link |
 |---|---|---|
-| **Anthropic API key** | Free tier available | [console.anthropic.com](https://console.anthropic.com) |
+| **OpenRouter API key** | One key, many models (Claude, GPT, Gemini, Llama, and more) | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| **Or a local model server** | e.g. Ollama - no API key, no third party, runs entirely on your machine | [ollama.com](https://ollama.com) |
 
 ---
 
@@ -169,18 +170,23 @@ Re-running it detects your existing `~/murmur` install, updates the files in pla
 
 ### 1. AI cleanup (optional but recommended)
 
+Open **Settings → AI Cleanup**, enable it, and pick a provider:
+
+- **OpenRouter** - paste an API key from [openrouter.ai/keys](https://openrouter.ai/keys) and choose a model (Claude Haiku, GPT-4o mini, Gemini Flash Lite, Llama, DeepSeek, Qwen, Mistral, and Amazon Nova are pre-listed)
+- **Local** - point it at any OpenAI-compatible server, such as [Ollama](https://ollama.com) running on `http://localhost:11434/v1` - no API key needed, nothing leaves your machine
+
+To set an OpenRouter key via environment variable instead of Settings:
+
 **Windows:** open `%LOCALAPPDATA%\Murmur\.env` in a text editor and add your key:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
+OPENROUTER_API_KEY=sk-or-your-key-here
 ```
 
 **Linux:** open `$XDG_CONFIG_HOME/murmur/.env` (normally
 `~/.config/murmur/.env`) and add the same line. The Linux bootstrap creates this
 file; existing source-tree `.env` values are imported on first startup and the
 legacy file is retained as a backup.
-
-Or enter it directly in **Settings → AI Cleanup**.
 
 ### 2. Start dictating
 
@@ -216,7 +222,7 @@ Open Settings from the tray icon (right-click → Settings).
 | **General** | Push-to-talk key, start with system |
 | **Audio** | Input device |
 | **Transcription** | Local, remote, or cloud mode, Whisper model, device and language, saved remote servers, cloud provider/model and API key (Voxtral, Groq, Deepgram, or Cartesia) |
-| **AI Cleanup** | Enable/disable Claude Haiku, Anthropic API key |
+| **AI Cleanup** | Enable/disable, provider (OpenRouter or Local), model, API key or local server URL |
 | **Display** | Appearance (theme), recording overlay, overlay screen position, sound feedback |
 | **Profile** | Transcription style, user context, word corrections |
 
@@ -389,7 +395,7 @@ If your speech isn't English, Voxtral or Groq are the ones that will actually pi
 ### Setup
 
 1. Get an API key from whichever provider's console you want to use (table above)
-2. Open **Settings → Transcription**, switch to **Cloud**, pick the provider and model, and paste that provider's key - or set the `MURMUR_CLOUD_API_KEY` environment variable (in `.env`, same as `ANTHROPIC_API_KEY` for AI cleanup) if you'd rather not store it in Settings; it applies to whichever provider is currently selected
+2. Open **Settings → Transcription**, switch to **Cloud**, pick the provider and model, and paste that provider's key - or set the `MURMUR_CLOUD_API_KEY` environment variable (in `.env`, same idea as `OPENROUTER_API_KEY` for AI cleanup) if you'd rather not store it in Settings; it applies to whichever provider is currently selected
 3. That's it - no model download, no server to run
 
 A missing or invalid key fails the recording clearly rather than silently falling back to local transcription, so a billing or network problem is never mistaken for silence.
@@ -441,7 +447,7 @@ Output: dist\Murmur-Setup-vX.X.exe
 - Audio is processed locally by default and never sent anywhere
 - When using remote mode, audio is sent over HTTP to a server you control — secure it with HTTPS (via a reverse proxy) or a VPN if used over the internet
 - When using cloud mode, audio is sent to a third-party API (Mistral, Groq, Deepgram, or Cartesia, whichever you've picked) that you do not control — a different trust boundary than remote mode, not just a faster version of it
-- AI cleanup sends transcribed text (not audio) to the Anthropic API if enabled
+- AI cleanup sends transcribed text (not audio) to a third-party API if enabled and set to OpenRouter, or to a server you control (and nowhere else) if set to Local
 
 ---
 
