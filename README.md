@@ -13,7 +13,7 @@ No subscription. No cloud. Your audio never leaves your machine - unless you cho
 - **Push-to-talk** - hold any configurable key to record, release to transcribe and paste
 - **Local transcription** - runs Whisper entirely on your own GPU or CPU, no internet required
 - **Remote transcription** - offload transcription to another machine over your local network, a VPN, or a reverse proxy
-- **Cloud transcription** - send audio to a third-party API (Mistral Voxtral) for fast transcription on lower-end or older machines, no server of your own required
+- **Cloud transcription** - send audio to a third-party API (Mistral Voxtral, Groq, Deepgram, or Cartesia) for fast transcription on lower-end or older machines, no server of your own required
 - **AI cleanup** - Claude Haiku removes filler words, fixes punctuation and capitalization, and preserves your language (Dutch, English, or mixed)
 - **Style profiles** - choose Formal, Informal, Technical, or write your own style instruction
 - **User profile** - tell Haiku who you are so it can apply context to every transcription
@@ -22,8 +22,10 @@ No subscription. No cloud. Your audio never leaves your machine - unless you cho
 - **Audio device selection** - choose any input device from settings
 - **Activity log** - compact or debug view of every transcription session; full history saved to disk
 - **Whisper Server manager** - install, start, stop and configure a local Whisper server directly from the tray icon (Windows); status and connection info on Linux
-- **System tray** - runs silently in the background, waveform icon changes colour for idle / recording / processing
-- **Single installer** - one `.exe` sets up a Python virtual environment and all dependencies automatically (Windows); `setup_linux.sh` for Linux
+- **System tray** - runs silently in the background, waveform icon changes colour for idle / recording / processing, and matches the active theme when idle
+- **Theming** - follow the active Omarchy theme live, follow the system's light/dark preference, or pick any of Omarchy's 22 bundled themes manually - works on any Linux desktop or Windows, not just Omarchy
+- **Recording overlay** - a small animated indicator while recording, theme-colored, positioned anywhere on screen via a 3x3 grid in Settings
+- **Single installer** - one `.exe` sets up a Python virtual environment and all dependencies automatically (Windows); `setup_linux.sh` (git clone) or the portable `murmur-install.sh` script for Linux
 
 ---
 
@@ -141,6 +143,28 @@ Start Murmur:
 
 ---
 
+## Updating
+
+Murmur doesn't check for updates on its own - each platform's install method is re-run manually. Settings, history, and your `.env` are all preserved across an update; nothing here touches them.
+
+**Windows:** download the latest installer from [Releases](https://github.com/R3PC0N/murmur/releases) and run it over your existing install. Inno Setup recognizes it as an upgrade of the same app rather than a separate install.
+
+**Linux, git clone:**
+```bash
+cd murmur
+git pull
+bash setup_linux.sh
+```
+`setup_linux.sh` always reinstalls dependencies against the current `requirements-linux.lock`, even if `.venv` already exists, so this picks up anything new - not just what a fresh install would need.
+
+**Linux, portable install script:**
+```bash
+curl -sSL https://murmurlabs.dev/downloads/murmur-install.sh | bash
+```
+Re-running it detects your existing `~/murmur` install, updates the files in place, and reruns setup the same way as above.
+
+---
+
 ## First-run setup
 
 ### 1. AI cleanup (optional but recommended)
@@ -171,7 +195,7 @@ The hotkey can be changed in **Settings → General**.
 - **Hyprland/Wayland:** Murmur registers temporary press and release bindings through `hyprctl` and relays those events to the running process. It does not permanently edit Hyprland configuration.
 - **Other native-Wayland compositors:** Murmur reports that no supported global-hotkey backend is available instead of attempting an unreliable X11 fallback.
 
-On Hyprland, Settings offers F1–F12, letters, digits, and Space with optional Ctrl, Alt, Shift, and Super modifiers. Murmur compares the complete combination and will not replace an identical compositor binding. A desktop or distribution may already use F9, so choose an available combination.
+On Hyprland, Settings offers F1–F12, letters, digits, Space, Page Up, and Page Down, with optional Ctrl, Alt, Shift, and Super modifiers. Murmur compares the complete combination and will not replace an identical compositor binding. A desktop or distribution may already use F9, so choose an available combination — a single dedicated key like Page Down avoids the (rare but real) chance of a modifier combo like Ctrl+Z colliding with your terminal's own SIGTSTP suspend binding.
 
 ### Text insertion backends
 
@@ -191,9 +215,9 @@ Open Settings from the tray icon (right-click → Settings).
 |---|---|
 | **General** | Push-to-talk key, start with system |
 | **Audio** | Input device |
-| **Transcription** | Local, remote, or cloud mode, Whisper model, device and language, saved remote servers, cloud provider and API key |
+| **Transcription** | Local, remote, or cloud mode, Whisper model, device and language, saved remote servers, cloud provider/model and API key (Voxtral, Groq, Deepgram, or Cartesia) |
 | **AI Cleanup** | Enable/disable Claude Haiku, Anthropic API key |
-| **Display** | Recording overlay, sound feedback |
+| **Display** | Appearance (theme), recording overlay, overlay screen position, sound feedback |
 | **Profile** | Transcription style, user context, word corrections |
 
 ### Transcription language
@@ -228,6 +252,23 @@ Choose a style in **Profile → Transcription style**:
 | `informal` | Casual tone, contractions allowed |
 | `technical` | Technical terms and acronyms preserved exactly |
 | `custom` | Write your own instruction |
+
+### Appearance & themes
+
+Open **Settings → Display → Appearance** to choose how Murmur is colored. One picker, three kinds of entries:
+
+- **Follow Omarchy theme** - only shown on Omarchy. Live: switching your Omarchy theme system-wide (`omarchy-theme-set` or the usual theme switcher) recolors every open Murmur window within a couple of seconds, no restart needed. Murmur only reads Omarchy's current theme state to do this - it never writes to your Omarchy configuration.
+- **Follow system light/dark** - works everywhere, including plain Ubuntu/GNOME/KDE and Windows. Uses Murmur's own neutral light and dark palette, following the desktop's light/dark preference (the same standard mechanism - the XDG Desktop Portal on Linux - that Omarchy itself uses under the hood).
+- **A specific theme by name** - all 22 of Omarchy's built-in themes (gruvbox, tokyo-night, nord, catppuccin, and so on) are bundled directly into Murmur, so they're available as a fixed pick even without Omarchy installed. Doesn't change until you change it.
+
+The tray icon's idle color and the recording overlay (see below) both follow whichever of these is active. The one thing that doesn't is the native window title-bar chrome on Windows - it stays driven by the Windows light/dark setting itself, regardless of a manually-picked theme.
+
+### Recording overlay
+
+A small always-on-top indicator appears while recording: an animated waveform in the current theme's accent color and a timer, no other chrome. Toggle it and set where it sits on screen from **Settings → Display**:
+
+- **Show recording overlay** - on or off
+- **Overlay position** - a 3x3 grid (top/middle/bottom × left/center/right); defaults to bottom-right
 
 ---
 
@@ -336,12 +377,14 @@ Murmur can send audio to a third-party transcription API instead of running Whis
 
 | Provider | Console | Notes |
 |---|---|---|
-| Mistral Voxtral | [console.mistral.ai](https://console.mistral.ai) | Fast, low cost - the original default |
-| Groq | [console.groq.com](https://console.groq.com) | Hosted Whisper large-v3/turbo; typically the fastest and cheapest option, generous free tier |
-| Deepgram | [console.deepgram.com](https://console.deepgram.com) | Nova-3; strong accuracy and multilingual coverage |
-| Cartesia | [play.cartesia.ai](https://play.cartesia.ai) | Ink-Whisper |
+| Mistral Voxtral | [console.mistral.ai](https://console.mistral.ai) | Fast, low cost - the original default. Auto-detects language. |
+| Groq | [console.groq.com](https://console.groq.com) | Hosted Whisper large-v3/turbo; typically the fastest and cheapest option, generous free tier. Auto-detects language. |
+| Deepgram | [console.deepgram.com](https://console.deepgram.com) | Nova-3; strong accuracy. Defaults to English - Murmur doesn't currently pass a language parameter, so non-English speech isn't picked up. |
+| Cartesia | [play.cartesia.ai](https://play.cartesia.ai) | Ink-Whisper. Also defaults to English for the same reason. |
 
 Each provider needs its own API key from its own console - keys are not shared between providers, so switching providers in Settings doesn't reuse whatever key was entered for a different one. Check each provider's own pricing page before relying on it for heavy use.
+
+If your speech isn't English, Voxtral or Groq are the ones that will actually pick that up today.
 
 ### Setup
 
@@ -397,7 +440,7 @@ Output: dist\Murmur-Setup-vX.X.exe
 
 - Audio is processed locally by default and never sent anywhere
 - When using remote mode, audio is sent over HTTP to a server you control — secure it with HTTPS (via a reverse proxy) or a VPN if used over the internet
-- When using cloud mode, audio is sent to a third-party API (Mistral) that you do not control — a different trust boundary than remote mode, not just a faster version of it
+- When using cloud mode, audio is sent to a third-party API (Mistral, Groq, Deepgram, or Cartesia, whichever you've picked) that you do not control — a different trust boundary than remote mode, not just a faster version of it
 - AI cleanup sends transcribed text (not audio) to the Anthropic API if enabled
 
 ---
