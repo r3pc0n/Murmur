@@ -1,9 +1,20 @@
+import os
+import sys
+
+if sys.platform != "win32":
+    # WebKitGTK's GPU-accelerated compositing teardown has hit a confirmed
+    # heap-corruption bug in NVIDIA's proprietary driver twice on this exact
+    # machine (SIGSEGV 2026-08-18, SIGABRT 2026-09-12, both diagnosed via
+    # coredumpctl/gdb with the fault inside libnvidia-gpucomp.so's atexit
+    # cleanup). Murmur's windows are simple HTML/CSS with nothing GPU-bound,
+    # so force software compositing to avoid that code path entirely rather
+    # than wait on an upstream driver fix.
+    os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
+
 # ── Heavy imports ─────────────────────────────────────────────────────────────
 import ctypes
-import os
 import re
 import subprocess
-import sys
 import threading
 from pathlib import Path
 
