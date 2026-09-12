@@ -330,12 +330,23 @@ curl http://localhost:8765/health
 
 Murmur can send audio to a third-party transcription API instead of running Whisper anywhere yourself - useful on a machine too slow or battery-limited for local transcription, with no server of your own to set up or maintain.
 
-**This is a different trust boundary than remote mode above.** Remote mode sends audio to a server *you* control; cloud mode sends it to a third party's API over the internet. Only Mistral's Voxtral is supported today, chosen for its speed (typically under half a second) and low cost - check [Mistral's current pricing](https://mistral.ai/pricing) before relying on it for heavy use.
+**This is a different trust boundary than remote mode above.** Remote mode sends audio to a server *you* control; cloud mode sends it to a third party's API over the internet.
+
+### Providers
+
+| Provider | Console | Notes |
+|---|---|---|
+| Mistral Voxtral | [console.mistral.ai](https://console.mistral.ai) | Fast, low cost - the original default |
+| Groq | [console.groq.com](https://console.groq.com) | Hosted Whisper large-v3/turbo; typically the fastest and cheapest option, generous free tier |
+| Deepgram | [console.deepgram.com](https://console.deepgram.com) | Nova-3; strong accuracy and multilingual coverage |
+| Cartesia | [play.cartesia.ai](https://play.cartesia.ai) | Ink-Whisper |
+
+Each provider needs its own API key from its own console - keys are not shared between providers, so switching providers in Settings doesn't reuse whatever key was entered for a different one. Check each provider's own pricing page before relying on it for heavy use.
 
 ### Setup
 
-1. Get a Mistral API key from [console.mistral.ai](https://console.mistral.ai)
-2. Open **Settings → Transcription**, switch to **Cloud**, and paste the key - or set the `MURMUR_CLOUD_API_KEY` environment variable (in `.env`, same as `ANTHROPIC_API_KEY` for AI cleanup) if you'd rather not store it in Settings
+1. Get an API key from whichever provider's console you want to use (table above)
+2. Open **Settings → Transcription**, switch to **Cloud**, pick the provider and model, and paste that provider's key - or set the `MURMUR_CLOUD_API_KEY` environment variable (in `.env`, same as `ANTHROPIC_API_KEY` for AI cleanup) if you'd rather not store it in Settings; it applies to whichever provider is currently selected
 3. That's it - no model download, no server to run
 
 A missing or invalid key fails the recording clearly rather than silently falling back to local transcription, so a billing or network problem is never mistaken for silence.

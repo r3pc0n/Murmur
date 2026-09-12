@@ -96,7 +96,7 @@ class RemoteLanguageTests(unittest.TestCase):
 class CloudVoxtralTests(unittest.TestCase):
     def test_missing_key_raises_before_any_request(self):
         with (
-            patch.object(config, "CLOUD_API_KEY", ""),
+            patch.object(config, "CLOUD_VOXTRAL_API_KEY", ""),
             patch("transcriber.requests.post") as post,
         ):
             with self.assertRaises(RuntimeError):
@@ -105,11 +105,11 @@ class CloudVoxtralTests(unittest.TestCase):
 
     def test_unknown_provider_raises_before_any_request(self):
         with (
-            patch.object(config, "CLOUD_API_KEY", "key"),
-            patch.object(config, "CLOUD_PROVIDER", "not-a-real-provider"),
+            patch.object(config, "CLOUD_PROVIDER", "unknownprovider"),
+            patch.object(config, "CLOUD_UNKNOWNPROVIDER_API_KEY", "key", create=True),
             patch("transcriber.requests.post") as post,
         ):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaisesRegex(RuntimeError, "Unknown cloud transcription provider"):
                 transcriber.Transcriber()._transcribe_cloud(np.zeros(1, dtype=np.float32))
         post.assert_not_called()
 
@@ -117,7 +117,7 @@ class CloudVoxtralTests(unittest.TestCase):
         response = Mock()
         response.json.return_value = {"text": " test "}
         with (
-            patch.object(config, "CLOUD_API_KEY", "secret-key"),
+            patch.object(config, "CLOUD_VOXTRAL_API_KEY", "secret-key"),
             patch.object(config, "CLOUD_PROVIDER", "voxtral"),
             patch.object(config, "CLOUD_VOXTRAL_MODEL", "voxtral-mini-latest"),
             patch("transcriber._to_wav_bytes", return_value=b"wav"),
@@ -140,6 +140,115 @@ class CloudVoxtralTests(unittest.TestCase):
             post.call_args.kwargs["files"], {"file": ("utterance.wav", b"wav", "audio/wav")}
         )
         self.assertEqual(result, ("test", ""))
+
+
+class CloudGroqTests(unittest.TestCase):
+    def test_request_shape_and_response(self):
+        response = Mock()
+        response.json.return_value = {"text": " test "}
+        with (
+            patch.object(config, "CLOUD_GROQ_API_KEY", "secret-key"),
+            patch.object(config, "CLOUD_PROVIDER", "groq"),
+            patch.object(config, "CLOUD_GROQ_MODEL", "whisper-large-v3-turbo"),
+            patch("transcriber._to_wav_bytes", return_value=b"wav"),
+            patch("transcriber.requests.post", return_value=response) as post,
+        ):
+            result = transcriber.Transcriber()._transcribe_cloud(
+                np.zeros(1, dtype=np.float32)
+            )
+
+        self.assertEqual(
+            post.call_args.args[0], "https://api.groq.com/openai/v1/audio/transcriptions"
+        )
+        self.assertEqual(
+            post.call_args.kwargs["headers"], {"Authorization": "Bearer secret-key"}
+        )
+        self.assertEqual(
+            post.call_args.kwargs["data"], {"model": "whisper-large-v3-turbo"}
+        )
+        self.assertEqual(
+            post.call_args.kwargs["files"], {"file": ("utterance.wav", b"wav", "audio/wav")}
+        )
+        self.assertEqual(result, ("test", ""))
+
+
+class CloudDeepgramTests(unittest.TestCase):
+    def test_request_shape_and_response(self):
+        response = Mock()
+        response.json.return_value = {
+            "results": {"channels": [{"alternatives": [{"transcript": " test "}]}]}
+        }
+        with (
+            patch.object(config, "CLOUD_DEEPGRAM_API_KEY", "secret-key"),
+            patch.object(config, "CLOUD_PROVIDER", "deepgram"),
+            patch.object(config, "CLOUD_DEEPGRAM_MODEL", "nova-3"),
+            patch("transcriber._to_wav_bytes", return_value=b"wav"),
+            patch("transcriber.requests.post", return_value=response) as post,
+        ):
+            result = transcriber.Transcriber()._transcribe_cloud(
+                np.zeros(1, dtype=np.float32)
+            )
+
+        self.assertEqual(post.call_args.args[0], "https://api.deepgram.com/v1/listen")
+        self.assertEqual(
+            post.call_args.kwargs["headers"],
+            {"Authorization": "Token secret-key", "Content-Type": "audio/wav"},
+        )
+        self.assertEqual(post.call_args.kwargs["params"], {"model": "nova-3"})
+        self.assertEqual(post.call_args.kwargs["data"], b"wav")
+        self.assertNotIn("files", post.call_args.kwargs)
+        self.assertEqual(result, ("test", ""))
+
+
+class CloudCartesiaTests(unittest.TestCase):
+    def test_request_shape_and_response(self):
+        response = Mock()
+        response.json.return_value = {"text": " test "}
+        with (
+            patch.object(config, "CLOUD_CARTESIA_API_KEY", "secret-key"),
+            patch.object(config, "CLOUD_PROVIDER", "cartesia"),
+            patch.object(config, "CLOUD_CARTESIA_MODEL", "ink-whisper"),
+            patch("transcriber._to_wav_bytes", return_value=b"wav"),
+            patch("transcriber.requests.post", return_value=response) as post,
+        ):
+            result = transcriber.Transcriber()._transcribe_cloud(
+                np.zeros(1, dtype=np.float32)
+            )
+
+        self.assertEqual(post.call_args.args[0], "https://api.cartesia.ai/stt")
+        self.assertEqual(
+            post.call_args.kwargs["headers"],
+            {"Authorization": "Bearer secret-key", "Cartesia-Version": "2026-08-14"},
+        )
+        self.assertEqual(post.call_args.kwargs["data"], {"model": "ink-whisper"})
+        self.assertEqual(
+            post.call_args.kwargs["files"], {"file": ("utterance.wav", b"wav", "audio/wav")}
+        )
+        self.assertEqual(result, ("test", ""))
+
+
+class CloudApiKeyMigrationTests(unittest.TestCase):
+    def test_legacy_shared_key_migrates_to_voxtral_field(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings_file = Path(directory) / "settings.json"
+            settings_file.write_text(json.dumps({"CLOUD_API_KEY": "old-shared-key"}))
+            with patch.object(config, "_SETTINGS_FILE", settings_file):
+                loaded = config._load()
+
+        self.assertEqual(loaded["CLOUD_VOXTRAL_API_KEY"], "old-shared-key")
+        self.assertNotIn("CLOUD_API_KEY", loaded)
+
+    def test_migration_does_not_overwrite_an_already_set_voxtral_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings_file = Path(directory) / "settings.json"
+            settings_file.write_text(json.dumps({
+                "CLOUD_API_KEY": "old-shared-key",
+                "CLOUD_VOXTRAL_API_KEY": "already-set-key",
+            }))
+            with patch.object(config, "_SETTINGS_FILE", settings_file):
+                loaded = config._load()
+
+        self.assertEqual(loaded["CLOUD_VOXTRAL_API_KEY"], "already-set-key")
 
 
 if __name__ == "__main__":

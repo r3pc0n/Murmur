@@ -26,7 +26,13 @@ _DEFAULTS: dict = {
     "REMOTE_WHISPER_API_KEY": "",
     "CLOUD_PROVIDER": "voxtral",
     "CLOUD_VOXTRAL_MODEL": "voxtral-mini-latest",
-    "CLOUD_API_KEY": "",
+    "CLOUD_GROQ_MODEL": "whisper-large-v3-turbo",
+    "CLOUD_DEEPGRAM_MODEL": "nova-3",
+    "CLOUD_CARTESIA_MODEL": "ink-whisper",
+    "CLOUD_VOXTRAL_API_KEY": "",
+    "CLOUD_GROQ_API_KEY": "",
+    "CLOUD_DEEPGRAM_API_KEY": "",
+    "CLOUD_CARTESIA_API_KEY": "",
     "AI_CLEANUP_ENABLED": True,
     "ANTHROPIC_API_KEY": "",
     "BEEP_ENABLED": True,
@@ -56,18 +62,31 @@ def uses_default_whisper_runtime() -> bool:
     )
 
 
+def _cloud_key_field(provider: str) -> str:
+    return f"CLOUD_{provider.upper()}_API_KEY"
+
+
 def _load() -> dict:
     data = dict(_DEFAULTS)
     settings_file = _SETTINGS_FILE if _SETTINGS_FILE.exists() else _LEGACY_SETTINGS_FILE
     if settings_file.exists():
         with open(settings_file) as f:
             data.update(json.load(f))
+
+    # One-time migration: CLOUD_API_KEY was a single shared field from back
+    # when Voxtral was the only cloud provider. Now that there are several,
+    # each needs its own key -- move the old value over, once, then drop it
+    # so it stops round-tripping through every future save().
+    legacy_key = data.pop("CLOUD_API_KEY", None)
+    if legacy_key and not data.get("CLOUD_VOXTRAL_API_KEY"):
+        data["CLOUD_VOXTRAL_API_KEY"] = legacy_key
+
     env_key = os.getenv("ANTHROPIC_API_KEY")
     if env_key:
         data["ANTHROPIC_API_KEY"] = env_key
     cloud_env_key = os.getenv("MURMUR_CLOUD_API_KEY")
     if cloud_env_key:
-        data["CLOUD_API_KEY"] = cloud_env_key
+        data[_cloud_key_field(data["CLOUD_PROVIDER"])] = cloud_env_key
     return data
 
 
@@ -78,7 +97,7 @@ def save(updates: dict):
     if os.getenv("ANTHROPIC_API_KEY"):
         current.pop("ANTHROPIC_API_KEY", None)
     if os.getenv("MURMUR_CLOUD_API_KEY"):
-        current.pop("CLOUD_API_KEY", None)
+        current.pop(_cloud_key_field(current["CLOUD_PROVIDER"]), None)
     serialized = json.dumps(current, indent=2)
     if sys.platform == "win32":
         with open(_SETTINGS_FILE, "w") as f:

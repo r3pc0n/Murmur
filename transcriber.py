@@ -139,24 +139,70 @@ class Transcriber:
         return data["text"], data["language"]
 
     def _transcribe_cloud(self, audio: np.ndarray) -> tuple[str, str]:
-        if not config.CLOUD_API_KEY:
+        provider = config.CLOUD_PROVIDER
+        api_key = getattr(config, f"CLOUD_{provider.upper()}_API_KEY", "")
+        if not api_key:
             raise RuntimeError(
                 "Cloud transcription is enabled but no API key is configured."
             )
-        provider = config.CLOUD_PROVIDER
         if provider == "voxtral":
-            return self._transcribe_voxtral(audio)
+            return self._transcribe_voxtral(audio, api_key)
+        if provider == "groq":
+            return self._transcribe_groq(audio, api_key)
+        if provider == "deepgram":
+            return self._transcribe_deepgram(audio, api_key)
+        if provider == "cartesia":
+            return self._transcribe_cartesia(audio, api_key)
         raise RuntimeError(f"Unknown cloud transcription provider: {provider!r}")
 
-    def _transcribe_voxtral(self, audio: np.ndarray) -> tuple[str, str]:
+    def _transcribe_voxtral(self, audio: np.ndarray, api_key: str) -> tuple[str, str]:
         wav = _to_wav_bytes(audio)
         resp = requests.post(
             "https://api.mistral.ai/v1/audio/transcriptions",
-            headers={"Authorization": f"Bearer {config.CLOUD_API_KEY}"},
+            headers={"Authorization": f"Bearer {api_key}"},
             data={"model": config.CLOUD_VOXTRAL_MODEL},
             files={"file": ("utterance.wav", wav, "audio/wav")},
             timeout=30,
         )
         resp.raise_for_status()
         # Voxtral's response has no language field, unlike local/remote Whisper.
+        return str(resp.json().get("text", "")).strip(), ""
+
+    def _transcribe_groq(self, audio: np.ndarray, api_key: str) -> tuple[str, str]:
+        wav = _to_wav_bytes(audio)
+        resp = requests.post(
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            data={"model": config.CLOUD_GROQ_MODEL},
+            files={"file": ("utterance.wav", wav, "audio/wav")},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return str(resp.json().get("text", "")).strip(), ""
+
+    def _transcribe_deepgram(self, audio: np.ndarray, api_key: str) -> tuple[str, str]:
+        # Deepgram takes the raw audio bytes as the body (not multipart) and
+        # options as query params, unlike every other provider here.
+        wav = _to_wav_bytes(audio)
+        resp = requests.post(
+            "https://api.deepgram.com/v1/listen",
+            headers={"Authorization": f"Token {api_key}", "Content-Type": "audio/wav"},
+            params={"model": config.CLOUD_DEEPGRAM_MODEL},
+            data=wav,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        text = resp.json()["results"]["channels"][0]["alternatives"][0]["transcript"]
+        return str(text).strip(), ""
+
+    def _transcribe_cartesia(self, audio: np.ndarray, api_key: str) -> tuple[str, str]:
+        wav = _to_wav_bytes(audio)
+        resp = requests.post(
+            "https://api.cartesia.ai/stt",
+            headers={"Authorization": f"Bearer {api_key}", "Cartesia-Version": "2026-08-14"},
+            data={"model": config.CLOUD_CARTESIA_MODEL},
+            files={"file": ("utterance.wav", wav, "audio/wav")},
+            timeout=30,
+        )
+        resp.raise_for_status()
         return str(resp.json().get("text", "")).strip(), ""

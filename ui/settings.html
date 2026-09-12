@@ -532,15 +532,16 @@
             </div>
             <div class="field-group">
               <div class="field-label">Provider</div>
-              <select id="cloud-provider" style="max-width:220px">
+              <select id="cloud-provider" style="max-width:220px" onchange="onCloudProviderChange()">
                 <option value="voxtral">Mistral Voxtral</option>
+                <option value="groq">Groq</option>
+                <option value="deepgram">Deepgram</option>
+                <option value="cartesia">Cartesia</option>
               </select>
             </div>
             <div class="field-group">
               <div class="field-label">Model</div>
-              <select id="cloud-model" style="max-width:220px">
-                <option value="voxtral-mini-latest">voxtral-mini-latest</option>
-              </select>
+              <select id="cloud-model" style="max-width:220px"></select>
             </div>
             <div class="field-group">
               <div class="field-label">API key</div>
@@ -722,6 +723,31 @@
     cfg.TRANSCRIPTION_MODE = mode;
   }
 
+  // ── Cloud provider ─────────────────────────────────────────────────────────
+  const CLOUD_PROVIDERS = {
+    voxtral:  { models: ['voxtral-mini-latest'], modelField: 'CLOUD_VOXTRAL_MODEL', keyField: 'CLOUD_VOXTRAL_API_KEY' },
+    groq:     { models: ['whisper-large-v3-turbo', 'whisper-large-v3', 'distil-whisper-large-v3-en'], modelField: 'CLOUD_GROQ_MODEL', keyField: 'CLOUD_GROQ_API_KEY' },
+    deepgram: { models: ['nova-3', 'nova-2'], modelField: 'CLOUD_DEEPGRAM_MODEL', keyField: 'CLOUD_DEEPGRAM_API_KEY' },
+    cartesia: { models: ['ink-whisper'], modelField: 'CLOUD_CARTESIA_MODEL', keyField: 'CLOUD_CARTESIA_API_KEY' },
+  };
+
+  function populateCloudProvider(provider) {
+    const info = CLOUD_PROVIDERS[provider] || CLOUD_PROVIDERS.voxtral;
+    const modelSel = document.getElementById('cloud-model');
+    modelSel.innerHTML = '';
+    info.models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m; opt.textContent = m;
+      modelSel.appendChild(opt);
+    });
+    setSelectVal('cloud-model', cfg[info.modelField] || info.models[0]);
+    document.getElementById('cloud-key').value = cfg[info.keyField] || '';
+  }
+
+  function onCloudProviderChange() {
+    populateCloudProvider(document.getElementById('cloud-provider').value);
+  }
+
   // ── Appearance ─────────────────────────────────────────────────────────────
   function onThemeChange() {
     cfg.THEME = document.getElementById('theme-select').value;
@@ -886,8 +912,7 @@
     document.getElementById('remote-key').value = cfg.REMOTE_WHISPER_API_KEY || '';
     populateServers(cfg.SAVED_SERVERS);
     setSelectVal('cloud-provider', cfg.CLOUD_PROVIDER || 'voxtral');
-    setSelectVal('cloud-model', cfg.CLOUD_VOXTRAL_MODEL || 'voxtral-mini-latest');
-    document.getElementById('cloud-key').value = cfg.CLOUD_API_KEY || '';
+    populateCloudProvider(cfg.CLOUD_PROVIDER || 'voxtral');
 
     // AI Cleanup
     setToggle('toggle-ai', cfg.AI_CLEANUP_ENABLED);
@@ -985,9 +1010,11 @@
       updates.WHISPER_DEVICE = document.getElementById('whisper-device').value;
       updates.WHISPER_COMPUTE_TYPE = updates.WHISPER_DEVICE === 'cuda' ? 'float16' : 'int8';
     } else if (mode === 'cloud') {
-      updates.CLOUD_PROVIDER      = document.getElementById('cloud-provider').value;
-      updates.CLOUD_VOXTRAL_MODEL = document.getElementById('cloud-model').value;
-      updates.CLOUD_API_KEY       = document.getElementById('cloud-key').value.trim();
+      const provider = document.getElementById('cloud-provider').value;
+      const info = CLOUD_PROVIDERS[provider] || CLOUD_PROVIDERS.voxtral;
+      updates.CLOUD_PROVIDER = provider;
+      updates[info.modelField] = document.getElementById('cloud-model').value;
+      updates[info.keyField]   = document.getElementById('cloud-key').value.trim();
     }
 
     await window.pywebview.api.save_settings(updates, restart);
