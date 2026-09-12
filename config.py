@@ -34,7 +34,11 @@ _DEFAULTS: dict = {
     "CLOUD_DEEPGRAM_API_KEY": "",
     "CLOUD_CARTESIA_API_KEY": "",
     "AI_CLEANUP_ENABLED": True,
-    "ANTHROPIC_API_KEY": "",
+    "CLEANUP_PROVIDER": "openrouter",
+    "OPENROUTER_API_KEY": "",
+    "OPENROUTER_MODEL": "anthropic/claude-haiku-4.5",
+    "LOCAL_CLEANUP_MODEL": "llama3.1",
+    "LOCAL_CLEANUP_BASE_URL": "http://localhost:11434/v1",
     "BEEP_ENABLED": True,
     "SHOW_OVERLAY": True,
     "OVERLAY_POSITION": "bottom-right",
@@ -52,7 +56,6 @@ _DEFAULTS: dict = {
 # Non-configurable constants
 SAMPLE_RATE = 16000
 MIN_RECORDING_SAMPLES = 4800
-ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 
 
 def uses_default_whisper_runtime() -> bool:
@@ -82,9 +85,14 @@ def _load() -> dict:
     if legacy_key and not data.get("CLOUD_VOXTRAL_API_KEY"):
         data["CLOUD_VOXTRAL_API_KEY"] = legacy_key
 
-    env_key = os.getenv("ANTHROPIC_API_KEY")
-    if env_key:
-        data["ANTHROPIC_API_KEY"] = env_key
+    # AI cleanup no longer has a standalone Anthropic option (Claude models
+    # are reachable through the OpenRouter provider instead) -- drop the old
+    # key so it stops round-tripping through every future save().
+    data.pop("ANTHROPIC_API_KEY", None)
+
+    openrouter_env_key = os.getenv("OPENROUTER_API_KEY")
+    if openrouter_env_key:
+        data["OPENROUTER_API_KEY"] = openrouter_env_key
     cloud_env_key = os.getenv("MURMUR_CLOUD_API_KEY")
     if cloud_env_key:
         data[_cloud_key_field(data["CLOUD_PROVIDER"])] = cloud_env_key
@@ -95,8 +103,8 @@ def save(updates: dict):
     current = _load()
     current.update(updates)
     # Don't persist an API key to disk if it came from .env
-    if os.getenv("ANTHROPIC_API_KEY"):
-        current.pop("ANTHROPIC_API_KEY", None)
+    if os.getenv("OPENROUTER_API_KEY"):
+        current.pop("OPENROUTER_API_KEY", None)
     if os.getenv("MURMUR_CLOUD_API_KEY"):
         current.pop(_cloud_key_field(current["CLOUD_PROVIDER"]), None)
     serialized = json.dumps(current, indent=2)

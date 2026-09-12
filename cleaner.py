@@ -1,4 +1,5 @@
-import anthropic
+import requests
+
 import config
 
 DEFAULT_BASE_PROMPT = (
@@ -63,20 +64,77 @@ def _build_system(language: str) -> str:
     return "".join(parts)
 
 
+def is_configured() -> bool:
+    """Whether the currently selected cleanup provider has what it needs to
+    run -- gates whether main.py even constructs a Cleaner."""
+    provider = config.CLEANUP_PROVIDER
+    if provider == "openrouter":
+        return bool(config.OPENROUTER_API_KEY)
+    if provider == "local":
+        return True
+    return False
+
+
 class Cleaner:
     def __init__(self):
-        self._client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        self._provider = config.CLEANUP_PROVIDER
 
     def clean(self, text: str, language: str = "") -> str:
         if not text.strip():
             return text
-        resp = self._client.messages.create(
-            model=config.ANTHROPIC_MODEL,
-            max_tokens=1024,
-            system=_build_system(language),
-            messages=[
-                *_FEW_SHOT,
-                {"role": "user", "content": f"<transcription>{text}</transcription>"},
-            ],
+        system = _build_system(language)
+        user_message = {"role": "user", "content": f"<transcription>{text}</transcription>"}
+
+        if self._provider == "openrouter":
+            if not config.OPENROUTER_API_KEY:
+                raise RuntimeError("Cleanup is set to OpenRouter but no API key is configured.")
+            return self._chat_completion(
+                url="https://openrouter.ai/api/v1/chat/completions",
+                model=config.OPENROUTER_MODEL,
+                system=system,
+                user_message=user_message,
+                headers={
+                    "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
+                    # Identify Murmur to OpenRouter, per its API etiquette.
+                    "HTTP-Referer": "https://murmurlabs.dev",
+                    "X-Title": "Murmur",
+                },
+            )
+
+        if self._provider == "local":
+            base_url = config.LOCAL_CLEANUP_BASE_URL.rstrip("/")
+            try:
+                return self._chat_completion(
+                    url=f"{base_url}/chat/completions",
+                    model=config.LOCAL_CLEANUP_MODEL,
+                    system=system,
+                    user_message=user_message,
+                    headers={},
+                )
+            except requests.ConnectionError as exc:
+                raise RuntimeError(
+                    f"Could not reach the local cleanup model at {base_url} -- is it running?"
+                ) from exc
+
+        raise RuntimeError(f"Unknown cleanup provider: {self._provider!r}")
+
+    def _chat_completion(self, url: str, model: str, system: str, user_message: dict, headers: dict) -> str:
+        """Shared request/response shape for OpenRouter and any local
+        OpenAI-compatible server (e.g. Ollama) -- both speak the same
+        /chat/completions API, just with a different base URL and auth."""
+        resp = requests.post(
+            url,
+            headers={"Content-Type": "application/json", **headers},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    *_FEW_SHOT,
+                    user_message,
+                ],
+                "max_tokens": 1024,
+            },
+            timeout=30,
         )
-        return resp.content[0].text.strip()
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()

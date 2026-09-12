@@ -141,10 +141,10 @@ splash: SplashScreen | None = None
 def _load_cleaner():
     global cleaner
     cleaner = None
-    if config.AI_CLEANUP_ENABLED and config.ANTHROPIC_API_KEY:
-        from cleaner import Cleaner
-        cleaner = Cleaner()
-        logger.log("AI cleanup enabled (Claude Haiku).", level="INFO")
+    import cleaner as cleaner_module
+    if config.AI_CLEANUP_ENABLED and cleaner_module.is_configured():
+        cleaner = cleaner_module.Cleaner()
+        logger.log(f"AI cleanup enabled ({config.CLEANUP_PROVIDER}).", level="INFO")
     else:
         logger.log("AI cleanup disabled.", level="INFO")
 

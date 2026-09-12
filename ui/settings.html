@@ -581,7 +581,7 @@
             <div class="form-row">
               <div>
                 <div class="form-row-label">Enable AI cleanup</div>
-                <div class="form-row-desc">Uses Claude Haiku to refine transcriptions</div>
+                <div class="form-row-desc">Refines transcriptions with the provider below</div>
               </div>
               <div class="toggle-track off" id="toggle-ai" onclick="toggleSwitch(this, 'AI_CLEANUP_ENABLED')">
                 <div class="toggle-thumb"></div>
@@ -590,8 +590,53 @@
           </div>
 
           <div class="field-group">
-            <div class="field-label">Anthropic API key</div>
-            <input type="password" id="api-key" placeholder="sk-ant-...">
+            <div class="field-label">Provider</div>
+            <div class="seg-ctrl">
+              <button class="seg-btn active" onclick="setCleanupProvider('openrouter')">OpenRouter</button>
+              <button class="seg-btn inactive" onclick="setCleanupProvider('local')">Local</button>
+            </div>
+          </div>
+
+          <!-- OpenRouter -->
+          <div id="cleanup-openrouter-panel">
+            <div class="inline-warn">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M6.5 1.5L12 11.5H1L6.5 1.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                <line x1="6.5" y1="5.5" x2="6.5" y2="8.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                <circle cx="6.5" cy="10" r="0.6" fill="currentColor"/>
+              </svg>
+              Text is sent to a third-party API, not a server you control.
+            </div>
+            <div class="field-group">
+              <div class="field-label">Model</div>
+              <select id="openrouter-model" style="max-width:280px">
+                <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
+                <option value="openai/gpt-4o-mini">GPT-4o mini</option>
+                <option value="google/gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B</option>
+                <option value="deepseek/deepseek-v4.1-flash">DeepSeek V4.1 Flash</option>
+                <option value="qwen/qwen3.8-flash">Qwen3.8 Flash</option>
+                <option value="mistralai/mistral-small-3.2-24b-instruct">Mistral Small 3.2</option>
+                <option value="amazon/nova-micro-v1">Amazon Nova Micro</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <div class="field-label">API key</div>
+              <input type="password" id="openrouter-key" placeholder="sk-or-...">
+            </div>
+          </div>
+
+          <!-- Local -->
+          <div id="cleanup-local-panel" style="display:none">
+            <div class="field-group">
+              <div class="field-label">Model</div>
+              <input type="text" id="local-cleanup-model" placeholder="llama3.1">
+              <div class="hint">The model name as it appears in `ollama list` (or your local server's own naming).</div>
+            </div>
+            <div class="field-group">
+              <div class="field-label">Server URL</div>
+              <input type="text" id="local-cleanup-url" placeholder="http://localhost:11434/v1">
+            </div>
           </div>
 
           <div class="field-group">
@@ -789,6 +834,20 @@
     populateCloudProvider(document.getElementById('cloud-provider').value);
   }
 
+  // ── Cleanup provider ─────────────────────────────────────────────────────────
+  const CLEANUP_PROVIDERS = ['openrouter', 'local'];
+
+  function setCleanupProvider(provider) {
+    document.querySelectorAll('#panel-ai .seg-btn').forEach((btn, i) => {
+      const p = CLEANUP_PROVIDERS[i];
+      btn.classList.toggle('active', p === provider);
+      btn.classList.toggle('inactive', p !== provider);
+    });
+    document.getElementById('cleanup-openrouter-panel').style.display = provider === 'openrouter' ? '' : 'none';
+    document.getElementById('cleanup-local-panel').style.display      = provider === 'local'      ? '' : 'none';
+    cfg.CLEANUP_PROVIDER = provider;
+  }
+
   // ── Appearance ─────────────────────────────────────────────────────────────
   function onThemeChange() {
     cfg.THEME = document.getElementById('theme-select').value;
@@ -969,7 +1028,11 @@
     // AI Cleanup
     setToggle('toggle-ai', cfg.AI_CLEANUP_ENABLED);
     toggleValues['AI_CLEANUP_ENABLED'] = !!cfg.AI_CLEANUP_ENABLED;
-    document.getElementById('api-key').value = cfg.ANTHROPIC_API_KEY || '';
+    setCleanupProvider(cfg.CLEANUP_PROVIDER || 'openrouter');
+    setSelectVal('openrouter-model', cfg.OPENROUTER_MODEL || 'anthropic/claude-haiku-4.5');
+    document.getElementById('openrouter-key').value = cfg.OPENROUTER_API_KEY || '';
+    document.getElementById('local-cleanup-model').value = cfg.LOCAL_CLEANUP_MODEL || '';
+    document.getElementById('local-cleanup-url').value = cfg.LOCAL_CLEANUP_BASE_URL || '';
     document.getElementById('cleanup-extra').value = cfg.CLEANUP_EXTRA_INSTRUCTIONS || '';
     document.getElementById('cleanup-base').value = cfg.CLEANUP_BASE_PROMPT || cfg.CLEANUP_DEFAULT_BASE_PROMPT || '';
 
@@ -1045,7 +1108,11 @@
       REMOTE_WHISPER_URL:     document.getElementById('remote-url').value.trim(),
       REMOTE_WHISPER_API_KEY: document.getElementById('remote-key').value.trim(),
       AI_CLEANUP_ENABLED:     'AI_CLEANUP_ENABLED' in toggleValues ? toggleValues['AI_CLEANUP_ENABLED'] : !!cfg.AI_CLEANUP_ENABLED,
-      ANTHROPIC_API_KEY:            document.getElementById('api-key').value.trim(),
+      CLEANUP_PROVIDER:             cfg.CLEANUP_PROVIDER || 'openrouter',
+      OPENROUTER_API_KEY:           document.getElementById('openrouter-key').value.trim(),
+      OPENROUTER_MODEL:             document.getElementById('openrouter-model').value,
+      LOCAL_CLEANUP_MODEL:          document.getElementById('local-cleanup-model').value.trim(),
+      LOCAL_CLEANUP_BASE_URL:       document.getElementById('local-cleanup-url').value.trim(),
       CLEANUP_EXTRA_INSTRUCTIONS:   document.getElementById('cleanup-extra').value.trim(),
       CLEANUP_BASE_PROMPT:          document.getElementById('cleanup-base').value.trim(),
       BEEP_ENABLED:           'BEEP_ENABLED' in toggleValues ? toggleValues['BEEP_ENABLED'] : !!cfg.BEEP_ENABLED,

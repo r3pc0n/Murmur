@@ -76,7 +76,6 @@ class PackagingManifestTests(unittest.TestCase):
             "pyperclip": "1.11.0",
             "pystray": "0.19.5",
             "pillow": "12.3.0",
-            "anthropic": "0.121.0",
             "python-dotenv": "1.2.2",
             "pywebview": "6.2.1",
             "requests": "2.34.2",
