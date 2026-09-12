@@ -54,6 +54,7 @@ Source: "ui\splash.html";               DestDir: "{app}\ui"; Flags: ignoreversio
 Source: "server\faster_whisper_server.py"; DestDir: "{app}\server"; Flags: ignoreversion
 Source: "server\requirements.txt";      DestDir: "{app}\server"; Flags: ignoreversion
 Source: "server\.env.example";          DestDir: "{app}\server"; DestName: ".env.example"; Flags: ignoreversion
+Source: "themes\omarchy_palettes.json"; DestDir: "{app}\themes"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\venv\Scripts\pythonw.exe"; Parameters: """{app}\main.py"""; WorkingDir: "{app}"; IconFilename: "{app}\murmur.ico"; Comment: "Voice dictation with AI cleanup"

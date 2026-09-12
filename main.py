@@ -22,6 +22,7 @@ from paster import paste_text
 from recorder import Recorder
 from settings_window import SettingsWindow
 from splash import SplashScreen
+import theme_utils
 from theme_utils import start_theme_watcher
 from transcriber import Transcriber
 
@@ -354,12 +355,23 @@ def _open_server_manager():
         threading.Thread(target=server_manager_win.open, daemon=True).start()
 
 
+def _get_open_windows():
+    wins = []
+    for w in [settings_win, log_win, server_manager_win]:
+        if w and w._window:
+            wins.append(w._window)
+    return wins
+
+
 def _on_settings_saved(updates: dict):
     _load_cleaner()
     if "PUSH_TO_TALK_KEY" in updates:
         _stop_hotkey_backend()
         _start_hotkey_backend()
         logger.log(f"Hotkey updated to: {config.PUSH_TO_TALK_KEY}", level="INFO")
+    if "THEME" in updates:
+        for win in _get_open_windows():
+            theme_utils.apply_theme_to_window(win)
     logger.log("Settings saved.", level="INFO")
 
 
@@ -498,12 +510,6 @@ def _background_init():
     if splash:
         splash.hide()
 
-    def _get_open_windows():
-        wins = []
-        for w in [settings_win, log_win, server_manager_win]:
-            if w and w._window:
-                wins.append(w._window)
-        return wins
     start_theme_watcher(_get_open_windows)
 
 

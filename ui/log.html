@@ -355,8 +355,17 @@
   // ── Init ───────────────────────────────────────────────────────────────────
   let lastCount = 0;
 
+  function applyThemeOverrides(payload) {
+    const root = document.documentElement;
+    if (payload.overrides) {
+      root.setAttribute('data-theme', payload.mode);
+      for (const [k, v] of Object.entries(payload.overrides)) root.style.setProperty(k, v);
+    }
+  }
+
   async function loadLog() {
     if (!window.pywebview) return;
+    window.pywebview.api.get_theme().then(applyThemeOverrides);
     const buf = await window.pywebview.api.get_log();
     entries = buf || [];
     lastCount = entries.length;

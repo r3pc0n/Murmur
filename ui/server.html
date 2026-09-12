@@ -583,12 +583,21 @@ sudo systemctl enable --now murmur-whisper</div>
   }
 
   // ── Init ───────────────────────────────────────────────────────────────────
+  function applyThemeOverrides(payload) {
+    const root = document.documentElement;
+    if (payload.overrides) {
+      root.setAttribute('data-theme', payload.mode);
+      for (const [k, v] of Object.entries(payload.overrides)) root.style.setProperty(k, v);
+    }
+  }
+
   async function load() {
     if (!window.pywebview) {
       showView('view-installed');
       return;
     }
 
+    window.pywebview.api.get_theme().then(applyThemeOverrides);
     const state = await window.pywebview.api.get_state();
 
     if (state.platform === 'linux' && !state.installed) {

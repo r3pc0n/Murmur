@@ -8,6 +8,7 @@ import autostart
 import cleaner
 import config
 import hotkeys
+import theme_utils
 from recorder import get_device_names
 from theme_utils import apply_title_bar_theme
 
@@ -42,6 +43,8 @@ class SettingsAPI:
             "ANTHROPIC_API_KEY":      config.ANTHROPIC_API_KEY,
             "BEEP_ENABLED":           config.BEEP_ENABLED,
             "SHOW_OVERLAY":           config.SHOW_OVERLAY,
+            "THEME":                  config.THEME,
+            "THEME_OPTIONS":          theme_utils.available_theme_options(),
             "TRANSCRIPTION_STYLE":    config.TRANSCRIPTION_STYLE,
             "CUSTOM_STYLE_PROMPT":    config.CUSTOM_STYLE_PROMPT,
             "USER_PROFILE":           config.USER_PROFILE,
@@ -53,6 +56,9 @@ class SettingsAPI:
 
     def get_devices(self) -> list:
         return get_device_names()
+
+    def get_theme(self) -> dict:
+        return theme_utils.theme_payload()
 
     def capture_hotkey(self) -> str:
         if hotkeys.capture_mode() == "select":
@@ -130,7 +136,7 @@ class SettingsWindow:
             width=740,
             height=540,
             min_size=(600, 420),
-            background_color="#232326",
+            background_color=theme_utils.initial_background_color(),
         )
         self._window.events.loaded += lambda: apply_title_bar_theme(self._window)
         self._window.events.closed += self._on_closed

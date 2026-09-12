@@ -8,6 +8,7 @@ import webview
 
 import config
 import logger
+import theme_utils
 from theme_utils import apply_title_bar_theme
 
 _SERVER_DIR   = Path(__file__).parent / "server"
@@ -117,6 +118,9 @@ class ServerAPI:
 
     def is_running(self) -> bool:
         return self._get_server_running()
+
+    def get_theme(self) -> dict:
+        return theme_utils.theme_payload()
 
     def start_server(self):
         self._start_server()
@@ -241,7 +245,7 @@ class ServerManagerWindow:
             width=480,
             height=660,
             resizable=False,
-            background_color="#232326",
+            background_color=theme_utils.initial_background_color(),
         )
         self._window.events.loaded += lambda: api._set_window(self._window)
         self._window.events.loaded += lambda: apply_title_bar_theme(self._window)

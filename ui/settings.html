@@ -604,6 +604,12 @@
         <!-- Display -->
         <div class="panel" id="panel-display">
           <div class="page-title">Display</div>
+
+          <div class="field-group">
+            <div class="field-label">Appearance</div>
+            <select id="theme-select" style="max-width:260px" onchange="onThemeChange()"></select>
+          </div>
+
           <div class="form-card">
             <div class="form-row">
               <div>
@@ -714,6 +720,11 @@
     document.getElementById('remote-panel').style.display = mode === 'remote' ? '' : 'none';
     document.getElementById('cloud-panel').style.display  = mode === 'cloud'  ? '' : 'none';
     cfg.TRANSCRIPTION_MODE = mode;
+  }
+
+  // ── Appearance ─────────────────────────────────────────────────────────────
+  function onThemeChange() {
+    cfg.THEME = document.getElementById('theme-select').value;
   }
 
   // ── Style ──────────────────────────────────────────────────────────────────
@@ -834,8 +845,17 @@
   }
 
   // ── Load config ────────────────────────────────────────────────────────────
+  function applyThemeOverrides(payload) {
+    const root = document.documentElement;
+    if (payload.overrides) {
+      root.setAttribute('data-theme', payload.mode);
+      for (const [k, v] of Object.entries(payload.overrides)) root.style.setProperty(k, v);
+    }
+  }
+
   async function loadConfig() {
     cfg = await window.pywebview.api.get_config();
+    window.pywebview.api.get_theme().then(applyThemeOverrides);
 
     // General
     document.getElementById('hotkey-badge').textContent = (cfg.PUSH_TO_TALK_KEY || 'f9').toUpperCase();
@@ -877,6 +897,14 @@
     document.getElementById('cleanup-base').value = cfg.CLEANUP_BASE_PROMPT || cfg.CLEANUP_DEFAULT_BASE_PROMPT || '';
 
     // Display
+    const themeSel = document.getElementById('theme-select');
+    themeSel.innerHTML = '';
+    (cfg.THEME_OPTIONS || []).forEach(opt => {
+      const el = document.createElement('option');
+      el.value = opt.value; el.textContent = opt.label;
+      themeSel.appendChild(el);
+    });
+    setSelectVal('theme-select', cfg.THEME || 'system');
     setToggle('toggle-overlay', cfg.SHOW_OVERLAY);
     toggleValues['SHOW_OVERLAY'] = !!cfg.SHOW_OVERLAY;
     setToggle('toggle-beep', cfg.BEEP_ENABLED);
@@ -944,6 +972,7 @@
       CLEANUP_BASE_PROMPT:          document.getElementById('cleanup-base').value.trim(),
       BEEP_ENABLED:           'BEEP_ENABLED' in toggleValues ? toggleValues['BEEP_ENABLED'] : !!cfg.BEEP_ENABLED,
       SHOW_OVERLAY:           'SHOW_OVERLAY' in toggleValues ? toggleValues['SHOW_OVERLAY'] : !!cfg.SHOW_OVERLAY,
+      THEME:                  cfg.THEME || 'system',
       AUTO_START:             'AUTO_START' in toggleValues ? toggleValues['AUTO_START'] : !!cfg.AUTO_START,
       TRANSCRIPTION_STYLE:    style,
       CUSTOM_STYLE_PROMPT:    document.getElementById('custom-style').value.trim(),

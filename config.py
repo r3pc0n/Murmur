@@ -31,6 +31,7 @@ _DEFAULTS: dict = {
     "ANTHROPIC_API_KEY": "",
     "BEEP_ENABLED": True,
     "SHOW_OVERLAY": True,
+    "THEME": "system",
     "AUTO_START": False,
     "WORD_CORRECTIONS": {},
     "USER_PROFILE": "",

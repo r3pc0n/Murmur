@@ -12,6 +12,7 @@
     --text-pri:   rgba(255,255,255,0.92);
     --text-muted: rgba(255,255,255,0.4);
     --track:      rgba(255,255,255,0.08);
+    --accent:     #C8922A;
     color-scheme: light dark;
   }
   [data-theme="light"] {
@@ -19,6 +20,7 @@
     --text-pri:   rgba(0,0,0,0.87);
     --text-muted: rgba(0,0,0,0.38);
     --track:      rgba(0,0,0,0.10);
+    --accent:     #8B5820;
     color-scheme: light;
   }
 
@@ -57,7 +59,7 @@
   .logo-icon .bar {
     width: 4px;
     border-radius: 3px;
-    background: #C8922A;
+    background: var(--accent);
     animation: wave 2s ease-in-out infinite;
   }
 
@@ -99,7 +101,7 @@
   .bar-fill {
     height: 100%;
     width: 40%;
-    background: #C8922A;
+    background: var(--accent);
     border-radius: 99px;
     animation: slide 1.4s ease-in-out infinite;
   }
@@ -139,7 +141,18 @@
   </div>
 </div>
 <script>
+  function applyThemeOverrides(payload) {
+    if (!payload.overrides) return;
+    const root = document.documentElement;
+    const o = payload.overrides;
+    root.setAttribute('data-theme', payload.mode);
+    if (o['--bg-surface']) root.style.setProperty('--bg', o['--bg-surface']);
+    if (o['--text-pri'])   root.style.setProperty('--text-pri', o['--text-pri']);
+    if (o['--text-muted']) root.style.setProperty('--text-muted', o['--text-muted']);
+    if (o['--accent'])     root.style.setProperty('--accent', o['--accent']);
+  }
   if (window.pywebview) {
+    window.pywebview.api.get_theme().then(applyThemeOverrides);
     window.pywebview.api.get_status().then(s => {
       if (s) document.getElementById('status').textContent = s;
     });

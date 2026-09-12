@@ -22,6 +22,7 @@ if (Test-Path $tempRoot) { Remove-Item $tempRoot -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $tempDir       | Out-Null
 New-Item -ItemType Directory -Force -Path "$tempDir\ui"  | Out-Null
 New-Item -ItemType Directory -Force -Path "$tempDir\server" | Out-Null
+New-Item -ItemType Directory -Force -Path "$tempDir\themes" | Out-Null
 
 # ── Python source ───────────────────────────────────────────────────────────
 $pyFiles = Get-Content "$src\linux_runtime_files.txt" | Where-Object { $_.Trim() }
@@ -49,6 +50,9 @@ foreach ($f in @('settings.html', 'log.html', 'server.html', 'splash.html')) {
 foreach ($f in @('faster_whisper_server.py', 'requirements.txt', '.env.example', 'murmur-whisper.service', 'README.md')) {
     Copy-LF "$src\server\$f" "$tempDir\server\$f"
 }
+
+# ── Themes ──────────────────────────────────────────────────────────────────
+Copy-LF "$src\themes\omarchy_palettes.json" "$tempDir\themes\omarchy_palettes.json"
 
 # ── Zip ─────────────────────────────────────────────────────────────────────
 if (Test-Path $zipOut) { Remove-Item $zipOut -Force }

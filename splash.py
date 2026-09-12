@@ -4,6 +4,7 @@ from pathlib import Path
 
 import webview
 
+import theme_utils
 from theme_utils import apply_title_bar_theme
 
 _UI = Path(__file__).parent / "ui" / "splash.html"
@@ -12,6 +13,9 @@ _UI = Path(__file__).parent / "ui" / "splash.html"
 class SplashAPI:
     def get_status(self):
         return "Starting up..."
+
+    def get_theme(self) -> dict:
+        return theme_utils.theme_payload()
 
 
 class SplashScreen:
@@ -38,7 +42,7 @@ class SplashScreen:
             resizable=False,
             frameless=True,
             on_top=True,
-            background_color="#1c1c1e",
+            background_color=theme_utils.initial_background_color(default="#1c1c1e"),
         )
         self._window.events.loaded += lambda: apply_title_bar_theme(self._window)
         return self._window
