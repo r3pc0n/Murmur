@@ -251,6 +251,29 @@
   .seg-btn.inactive { background: transparent; color: var(--text-sec); }
   .seg-btn.inactive:hover { color: var(--text-pri); background: var(--bg-hover); }
 
+  /* ── Overlay position grid ── */
+  .pos-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 26px);
+    grid-template-rows: repeat(3, 26px);
+    gap: 4px;
+    padding: 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    width: fit-content;
+  }
+  .pos-btn {
+    border: 1px solid var(--border-mid);
+    border-radius: 3px;
+    background: var(--bg-raised);
+    cursor: pointer;
+    padding: 0;
+    transition: all 0.12s;
+  }
+  .pos-btn:hover { background: var(--bg-hover); }
+  .pos-btn.active { background: var(--accent); border-color: var(--accent); }
+
   /* ── Key badge ── */
   .key-badge {
     background: var(--bg-raised);
@@ -621,6 +644,24 @@
                 <div class="toggle-thumb"></div>
               </div>
             </div>
+          </div>
+
+          <div class="field-group">
+            <div class="field-label">Overlay position</div>
+            <div class="pos-grid" id="overlay-position-grid">
+              <button class="pos-btn" data-pos="top-left" title="Top left"></button>
+              <button class="pos-btn" data-pos="top-center" title="Top center"></button>
+              <button class="pos-btn" data-pos="top-right" title="Top right"></button>
+              <button class="pos-btn" data-pos="middle-left" title="Middle left"></button>
+              <button class="pos-btn" data-pos="middle-center" title="Middle center"></button>
+              <button class="pos-btn" data-pos="middle-right" title="Middle right"></button>
+              <button class="pos-btn" data-pos="bottom-left" title="Bottom left"></button>
+              <button class="pos-btn" data-pos="bottom-center" title="Bottom center"></button>
+              <button class="pos-btn" data-pos="bottom-right" title="Bottom right"></button>
+            </div>
+          </div>
+
+          <div class="form-card">
             <div class="form-row">
               <div>
                 <div class="form-row-label">Sound feedback</div>
@@ -752,6 +793,17 @@
   function onThemeChange() {
     cfg.THEME = document.getElementById('theme-select').value;
   }
+
+  // ── Overlay position ───────────────────────────────────────────────────────
+  function setOverlayPosition(pos) {
+    cfg.OVERLAY_POSITION = pos;
+    document.querySelectorAll('.pos-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.pos === pos);
+    });
+  }
+  document.querySelectorAll('.pos-btn').forEach(btn => {
+    btn.addEventListener('click', () => setOverlayPosition(btn.dataset.pos));
+  });
 
   // ── Style ──────────────────────────────────────────────────────────────────
   function onStyleChange() {
@@ -931,6 +983,7 @@
     });
     setSelectVal('theme-select', cfg.THEME || 'system');
     setToggle('toggle-overlay', cfg.SHOW_OVERLAY);
+    setOverlayPosition(cfg.OVERLAY_POSITION || 'bottom-right');
     toggleValues['SHOW_OVERLAY'] = !!cfg.SHOW_OVERLAY;
     setToggle('toggle-beep', cfg.BEEP_ENABLED);
     toggleValues['BEEP_ENABLED'] = !!cfg.BEEP_ENABLED;
@@ -997,6 +1050,7 @@
       CLEANUP_BASE_PROMPT:          document.getElementById('cleanup-base').value.trim(),
       BEEP_ENABLED:           'BEEP_ENABLED' in toggleValues ? toggleValues['BEEP_ENABLED'] : !!cfg.BEEP_ENABLED,
       SHOW_OVERLAY:           'SHOW_OVERLAY' in toggleValues ? toggleValues['SHOW_OVERLAY'] : !!cfg.SHOW_OVERLAY,
+      OVERLAY_POSITION:       cfg.OVERLAY_POSITION || 'bottom-right',
       THEME:                  cfg.THEME || 'system',
       AUTO_START:             'AUTO_START' in toggleValues ? toggleValues['AUTO_START'] : !!cfg.AUTO_START,
       TRANSCRIPTION_STYLE:    style,

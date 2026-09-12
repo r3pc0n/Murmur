@@ -189,6 +189,14 @@ def theme_payload() -> dict:
     return {"mode": mode, "overrides": overrides}
 
 
+def tray_idle_color(default: str = "#AEAEB2") -> str:
+    """The tray icon's idle color -- matches the theme's foreground tone,
+    since that's what a symbolic-icon-tinting bar tints its own icons with
+    (verified by pixel-sampling this exact machine's tray)."""
+    _, overrides = resolve_theme()
+    return overrides["--text-pri"] if overrides else default
+
+
 def initial_background_color(default: str = _DEFAULT_BACKGROUND_COLOR) -> str:
     """The right static hex for a window's background_color= at creation.
     `default` is what today's hardcoded value already was for that window,
@@ -206,7 +214,7 @@ def apply_theme_to_window(window):
         pass
 
 
-def _start_linux_theme_watcher(get_open_windows):
+def _start_linux_theme_watcher(get_open_windows, on_change=None):
     """Poll for a live Omarchy theme switch every 2 s (same cadence as the
     Windows watcher below) and push it to all open windows. Only meaningful
     in "omarchy" mode -- "system" is already live via prefers-color-scheme,
@@ -234,19 +242,24 @@ def _start_linux_theme_watcher(get_open_windows):
                 try:
                     for win in get_open_windows():
                         apply_theme_to_window(win)
+                    if on_change:
+                        on_change()
                 except Exception:
                     pass
 
     threading.Thread(target=_watch, daemon=True).start()
 
 
-def start_theme_watcher(get_open_windows):
+def start_theme_watcher(get_open_windows, on_change=None):
     """Poll system theme every 2 s and reapply title bar to all open windows.
 
     get_open_windows: callable returning a list of pywebview Window objects.
+    on_change: optional callable invoked whenever a live theme switch is
+    detected (Linux/Omarchy-mode only), for updating things that aren't a
+    pywebview window -- e.g. the tray icon.
     """
     if sys.platform != "win32":
-        _start_linux_theme_watcher(get_open_windows)
+        _start_linux_theme_watcher(get_open_windows, on_change)
         return
 
     import os

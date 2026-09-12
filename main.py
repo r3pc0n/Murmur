@@ -148,7 +148,7 @@ def _make_icon(recording=False, processing=False) -> Image.Image:
     elif processing:
         color = "#C8922A"
     else:
-        color = "#AEAEB2"
+        color = theme_utils.tray_idle_color()
     heights = [14, 24, 38, 52, 38, 24, 14]
     bar_w, gap = 6, 3
     total_w = len(heights) * bar_w + (len(heights) - 1) * gap
@@ -372,6 +372,7 @@ def _on_settings_saved(updates: dict):
     if "THEME" in updates:
         for win in _get_open_windows():
             theme_utils.apply_theme_to_window(win)
+        _update_icon()
     logger.log("Settings saved.", level="INFO")
 
 
@@ -510,7 +511,7 @@ def _background_init():
     if splash:
         splash.hide()
 
-    start_theme_watcher(_get_open_windows)
+    start_theme_watcher(_get_open_windows, on_change=_update_icon)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

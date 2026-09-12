@@ -49,6 +49,7 @@ class SettingsAPI:
             "ANTHROPIC_API_KEY":      config.ANTHROPIC_API_KEY,
             "BEEP_ENABLED":           config.BEEP_ENABLED,
             "SHOW_OVERLAY":           config.SHOW_OVERLAY,
+            "OVERLAY_POSITION":       config.OVERLAY_POSITION,
             "THEME":                  config.THEME,
             "THEME_OPTIONS":          theme_utils.available_theme_options(),
             "TRANSCRIPTION_STYLE":    config.TRANSCRIPTION_STYLE,
