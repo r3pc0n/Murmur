@@ -1,7 +1,9 @@
 import json
+import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -455,6 +457,105 @@ class HyprlandBackendTests(unittest.TestCase):
         self.assertFalse(options["f8"]["available"])
         self.assertEqual(options["f8"]["conflicts"], ["Existing F8 action"])
         self.assertTrue(options["f9"]["available"])
+
+
+class HyprlandConfigReloadRecoveryTests(unittest.TestCase):
+    """Regression tests for a real bug: Omarchy runs `hyprctl reload` after
+    every theme switch, which wipes any hl.bind() registered at runtime (as
+    Murmur's push-to-talk binding is) since it isn't declared in the config
+    file Hyprland re-executes. Without recovery, push-to-talk silently dies
+    until Murmur is restarted."""
+
+    def make_backend(self, on_release=None):
+        with patch(
+            "hotkeys.app_paths.runtime_directory",
+            return_value=hotkeys.Path("/tmp/murmur-test-runtime"),
+        ):
+            return hotkeys.HyprlandHotkeyBackend("f8", Mock(), on_release or Mock())
+
+    def test_reload_rebinds_the_press_binding(self):
+        # "f8" has no modifiers, so a full re-registration is press + the
+        # unmodified-key release binding -- both must come back after reload.
+        backend = self.make_backend()
+        with patch("hotkeys._run_hyprctl") as run:
+            backend._recover_from_reload()
+        calls = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(len(calls), 2)
+        for call_args in calls:
+            self.assertEqual(call_args[0], "eval")
+            self.assertIn("hl.bind", call_args[1])
+        self.assertTrue(backend._registered)
+
+    def test_reload_while_key_held_releases_gracefully_instead_of_sticking(self):
+        on_release = Mock()
+        backend = self.make_backend(on_release=on_release)
+        backend._held = True
+        backend._watchers_active = True
+        with patch("hotkeys._run_hyprctl"):
+            backend._recover_from_reload()
+            for thread in threading.enumerate():
+                if thread is not threading.main_thread():
+                    thread.join(timeout=1)
+        self.assertFalse(backend._held)
+        self.assertFalse(backend._watchers_active)
+        on_release.assert_called_once()
+
+    def test_reload_when_key_not_held_does_not_fire_release(self):
+        on_release = Mock()
+        backend = self.make_backend(on_release=on_release)
+        with patch("hotkeys._run_hyprctl"):
+            backend._recover_from_reload()
+        on_release.assert_not_called()
+
+    def test_failed_rebind_is_traced_not_raised(self):
+        backend = self.make_backend()
+        with patch("hotkeys._run_hyprctl", side_effect=hotkeys.HotkeyError("boom")):
+            backend._recover_from_reload()  # must not raise
+        self.assertFalse(backend._registered)
+
+    def test_event_socket_path_uses_instance_signature_and_runtime_dir(self):
+        environ = {"HYPRLAND_INSTANCE_SIGNATURE": "abc123", "XDG_RUNTIME_DIR": "/run/user/1000"}
+        with patch("hotkeys.os.environ", environ):
+            path = hotkeys._hyprland_event_socket_path()
+        self.assertEqual(path, Path("/run/user/1000/hypr/abc123/.socket2.sock"))
+
+    def test_event_socket_path_is_none_without_instance_signature(self):
+        with patch("hotkeys.os.environ", {}):
+            self.assertIsNone(hotkeys._hyprland_event_socket_path())
+
+    def test_watch_thread_exits_immediately_without_instance_signature(self):
+        backend = self.make_backend()
+        with patch("hotkeys.os.environ", {}):
+            # Must return, not block -- proves the no-signature case is a
+            # clean no-op rather than an infinite wait.
+            backend._watch_config_reloads()
+
+    def test_configreloaded_event_on_the_wire_triggers_recovery(self):
+        backend = self.make_backend()
+        backend._stop_event = threading.Event()
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / ".socket2.sock"
+            server.bind(str(socket_path))
+            server.listen(1)
+
+            recovered = threading.Event()
+            with (
+                patch("hotkeys._hyprland_event_socket_path", return_value=socket_path),
+                patch.object(backend, "_recover_from_reload", side_effect=recovered.set),
+            ):
+                watch_thread = threading.Thread(target=backend._watch_config_reloads, daemon=True)
+                watch_thread.start()
+                conn, _ = server.accept()
+                try:
+                    conn.sendall(b"workspace>>2\n")
+                    conn.sendall(b"configreloaded>>\n")
+                    self.assertTrue(recovered.wait(timeout=2))
+                finally:
+                    backend._stop_event.set()
+                    conn.close()
+                    watch_thread.join(timeout=2)
+            server.close()
 
 
 class HyprctlCommandTests(unittest.TestCase):

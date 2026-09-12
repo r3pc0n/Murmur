@@ -69,6 +69,19 @@ def _pid_is_alive(pid: int) -> bool:
     return True
 
 
+def _hyprland_event_socket_path() -> Path | None:
+    """Hyprland's event stream (distinct from the `hyprctl` command socket).
+    Emits a "configreloaded>>" line on every `hyprctl reload` -- including the
+    one Omarchy runs after every theme switch, which otherwise silently wipes
+    Murmur's runtime-only `hl.bind()` registration (see
+    HyprlandHotkeyBackend._watch_config_reloads)."""
+    signature = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+    if not signature:
+        return None
+    base = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    return Path(base) / "hypr" / signature / ".socket2.sock"
+
+
 def detect_backend(
     platform: str | None = None,
     environ: Mapping[str, str] | None = None,
@@ -383,6 +396,7 @@ class HyprlandHotkeyBackend:
         self._watchers_active = False
         self._held = False
         self._seen_press = False
+        self._reload_thread = None
         self.trace_path = os.environ.get(_HOTKEY_TRACE_ENV)
 
     def _check_conflicts(self):
@@ -577,6 +591,76 @@ class HyprlandHotkeyBackend:
             f'{{ description = "{_lua_quote(description)}" }})'
         )
 
+    def _register_bindings(self):
+        """(Re-)register the press binding, and the unmodified-key release
+        binding when there are no modifiers. Shared by start() and reload
+        recovery so both stay in sync."""
+        _run_hyprctl(["eval", self._base_press_binding()])
+        self._registered = True
+        if not self.modifiers:
+            description = f"{_MURMUR_DESCRIPTION} release [{self.pid}:{self.token}]"
+            statement = (
+                f'hl.bind("{_lua_quote(_lua_bind_key(self.modifiers, self.hypr_key))}", '
+                f'hl.dsp.exec_cmd("{_lua_quote(self._command("release"))}"), '
+                f'{{ description = "{_lua_quote(description)}", release = true }})'
+            )
+            _run_hyprctl(["eval", statement])
+
+    def _recover_from_reload(self):
+        """`hyprctl reload` (run by Omarchy after every theme switch, or by
+        hand) re-executes Hyprland's config from disk, which silently drops
+        any hl.bind() registered at runtime via `hyprctl eval` -- including
+        ours. Re-register immediately so push-to-talk doesn't stay dead until
+        Murmur is restarted."""
+        _trace_hotkey(self.trace_path, "reload", "configreloaded", "detected")
+        if self._held:
+            # The release watcher that would have ended this press is gone
+            # too. End the recording ourselves rather than leaving it stuck
+            # "held" forever with no way to release it.
+            self._held = False
+            threading.Thread(target=self.on_release, daemon=True).start()
+        self._watchers_active = False
+        self._registered = False
+        try:
+            self._register_bindings()
+            _trace_hotkey(self.trace_path, "reload", "configreloaded", "rebound")
+        except HotkeyError as exc:
+            _trace_hotkey(self.trace_path, "reload", "configreloaded", f"failed:{exc}")
+
+    def _watch_config_reloads(self):
+        path = _hyprland_event_socket_path()
+        if path is None:
+            return
+        while not self._stop_event.is_set():
+            try:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.settimeout(1.0)
+                sock.connect(str(path))
+            except OSError:
+                if self._stop_event.wait(2):
+                    return
+                continue
+            buffer = ""
+            try:
+                while not self._stop_event.is_set():
+                    try:
+                        chunk = sock.recv(4096)
+                    except socket.timeout:
+                        continue
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    buffer += chunk.decode("utf-8", errors="replace")
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        if line.startswith("configreloaded"):
+                            self._recover_from_reload()
+            finally:
+                sock.close()
+            if self._stop_event.wait(1):
+                return
+
     def start(self):
         try:
             self._cleanup_dead_sockets()
@@ -587,16 +671,9 @@ class HyprlandHotkeyBackend:
             os.chmod(self.socket_path, 0o600)
             self._thread = threading.Thread(target=self._serve, daemon=True)
             self._thread.start()
-            _run_hyprctl(["eval", self._base_press_binding()])
-            self._registered = True
-            if not self.modifiers:
-                description = f"{_MURMUR_DESCRIPTION} release [{self.pid}:{self.token}]"
-                statement = (
-                    f'hl.bind("{_lua_quote(_lua_bind_key(self.modifiers, self.hypr_key))}", '
-                    f'hl.dsp.exec_cmd("{_lua_quote(self._command("release"))}"), '
-                    f'{{ description = "{_lua_quote(description)}", release = true }})'
-                )
-                _run_hyprctl(["eval", statement])
+            self._register_bindings()
+            self._reload_thread = threading.Thread(target=self._watch_config_reloads, daemon=True)
+            self._reload_thread.start()
         except Exception as exc:
             self.stop()
             if isinstance(exc, HotkeyError):
