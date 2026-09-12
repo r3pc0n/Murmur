@@ -158,6 +158,27 @@ def _hyprland_key(key: str) -> str:
     return names.get(normalize_key(key), normalize_key(key).upper())
 
 
+def _lua_bind_key(modifiers: tuple[str, ...], hypr_key_token: str) -> str:
+    """Build the '<MOD> + <MOD> + <KEY>' string Hyprland's Lua hl.bind/hl.unbind expect."""
+    parts = [_HYPRLAND_MODIFIERS[modifier] for modifier in modifiers]
+    parts.append(hypr_key_token)
+    return " + ".join(parts)
+
+
+def _lua_quote(value: str) -> str:
+    """Escape a string for embedding as a Lua double-quoted string literal."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+# Hyprland's Lua binds no longer echo the exec command in `hyprctl binds`' arg
+# field (it's an opaque Lua callback reference instead), so Murmur identifies
+# its own bindings by parsing this pid/token pair back out of the description
+# it set, rather than out of the exec argv.
+_DESCRIPTION_IDENTITY_RE = re.compile(
+    re.escape(_MURMUR_DESCRIPTION) + r" (?:press|release|watcher) \[(\d+):([0-9a-f]+)\]$"
+)
+
+
 def _parse_hyprland_binds(output: str) -> list[dict[str, str]]:
     records = []
     for block in output.split("\n\n"):
@@ -184,10 +205,10 @@ def _run_hyprctl(args: list[str]) -> str:
         check=False,
         timeout=5,
     )
-    unexpected_keyword_output = (
-        args[0] == "keyword" and result.stdout.strip() not in ("", "ok")
+    unexpected_output = (
+        args[0] in ("keyword", "eval") and result.stdout.strip() not in ("", "ok")
     )
-    if result.returncode != 0 or unexpected_keyword_output:
+    if result.returncode != 0 or unexpected_output:
         detail = result.stderr.strip() or result.stdout.strip() or "no error details"
         raise HotkeyError(f"hyprctl {' '.join(args[:2])} failed: {detail}")
     return result.stdout
@@ -349,9 +370,10 @@ class HyprlandHotkeyBackend:
         self.on_press = on_press
         self.on_release = on_release
         self.token = uuid.uuid4().hex[:8]
+        self.pid = os.getpid()
         runtime_dir = app_paths.runtime_directory()
         self.runtime_dir = runtime_dir
-        self.socket_path = runtime_dir / f"hotkey-{os.getpid()}-{self.token}.sock"
+        self.socket_path = runtime_dir / f"hotkey-{self.pid}-{self.token}.sock"
         self._socket = None
         self._thread = None
         self._stop_event = threading.Event()
@@ -368,18 +390,11 @@ class HyprlandHotkeyBackend:
             raise HotkeyError(f"{self.hotkey.upper()} is already bound in Hyprland: {details}")
 
     def _socket_from_record(self, record: dict[str, str]) -> tuple[Path, int] | None:
-        if not record.get("description", "").startswith(_MURMUR_DESCRIPTION):
+        match = _DESCRIPTION_IDENTITY_RE.fullmatch(record.get("description", ""))
+        if not match:
             return None
-        try:
-            arguments = shlex.split(record.get("arg", ""))
-        except ValueError:
-            return None
-        for argument in arguments:
-            path = Path(argument)
-            match = _HOTKEY_SOCKET_RE.fullmatch(path.name)
-            if path.parent == self.runtime_dir and match:
-                return path, int(match.group(1))
-        return None
+        pid, token = match.group(1), match.group(2)
+        return self.runtime_dir / f"hotkey-{pid}-{token}.sock", int(pid)
 
     def _cleanup_dead_sockets(self):
         for path in self.runtime_dir.glob("hotkey-*-*.sock"):
@@ -402,9 +417,9 @@ class HyprlandHotkeyBackend:
                 return
             stale.append(socket_owner[0])
 
-        # Hyprland unbinds by target rather than description. Only remove the
-        # target when every matching record belongs to a dead Murmur instance.
-        _run_hyprctl(["keyword", "unbind", self._binding_target()])
+        # Hyprland unbinds by key combination rather than description. Only
+        # remove it once every matching record belongs to a dead Murmur instance.
+        _run_hyprctl(["eval", f'hl.unbind("{_lua_quote(_lua_bind_key(self.modifiers, self.hypr_key))}")'])
         for path in stale:
             try:
                 path.unlink()
@@ -415,11 +430,14 @@ class HyprlandHotkeyBackend:
     def _binding_target(self) -> str:
         return f"{self.hypr_modifiers}, {self.hypr_key}"
 
-    def _release_watcher_targets(self) -> tuple[str, ...]:
+    def _release_watcher_keys(self) -> tuple[str, ...]:
         keys = [self.hypr_key]
         for modifier in self.modifiers:
             keys.extend(_HYPRLAND_MODIFIER_KEYS[modifier])
-        return tuple(f"{self.hypr_modifiers}, {key}" for key in keys)
+        return tuple(keys)
+
+    def _release_watcher_targets(self) -> tuple[str, ...]:
+        return tuple(f"{self.hypr_modifiers}, {key}" for key in self._release_watcher_keys())
 
     def _watcher_records(self) -> dict[str, list[dict[str, str]]]:
         records = _parse_hyprland_binds(_run_hyprctl(["binds"]))
@@ -439,7 +457,7 @@ class HyprlandHotkeyBackend:
         except HotkeyError as exc:
             _trace_hotkey(self.trace_path, "watchers", "activate", f"failed:{exc}")
             return False
-        base_description = f"{_MURMUR_DESCRIPTION} press [{self.token}]"
+        base_description = f"{_MURMUR_DESCRIPTION} press [{self.pid}:{self.token}]"
         conflicts = [
             record for target, matches in records.items() for record in matches
             if target != self._binding_target() or record.get("description") != base_description
@@ -452,14 +470,19 @@ class HyprlandHotkeyBackend:
             _trace_hotkey(self.trace_path, "watchers", "activate", f"conflict:{details}")
             return False
 
-        commands = []
-        for target in self._release_watcher_targets():
-            description = f"{_MURMUR_DESCRIPTION} watcher [{self.token}]"
-            commands.append(
-                f"keyword binddrn {target}, {description}, exec, {self._command('release', target)}"
+        description = f"{_MURMUR_DESCRIPTION} watcher [{self.pid}:{self.token}]"
+        statements = []
+        for key in self._release_watcher_keys():
+            lua_target = _lua_bind_key(self.modifiers, key)
+            statements.append(
+                'hl.bind("{}", hl.dsp.exec_cmd("{}"), {{ description = "{}", release = true, non_consuming = true }})'.format(
+                    _lua_quote(lua_target),
+                    _lua_quote(self._command("release", lua_target)),
+                    _lua_quote(description),
+                )
             )
         try:
-            _run_hyprctl(["--batch", " ; ".join(commands)])
+            _run_hyprctl(["eval", "; ".join(statements)])
         except HotkeyError as exc:
             _trace_hotkey(self.trace_path, "watchers", "activate", f"failed:{exc}")
             return False
@@ -470,8 +493,9 @@ class HyprlandHotkeyBackend:
     def _deactivate_release_watchers(self, preserve_base: bool = True):
         if not self._watchers_active:
             return
-        own_description = f"{_MURMUR_DESCRIPTION} watcher [{self.token}]"
-        base_description = f"{_MURMUR_DESCRIPTION} press [{self.token}]"
+        own_description = f"{_MURMUR_DESCRIPTION} watcher [{self.pid}:{self.token}]"
+        base_description = f"{_MURMUR_DESCRIPTION} press [{self.pid}:{self.token}]"
+        target_keys = dict(zip(self._release_watcher_targets(), self._release_watcher_keys()))
         try:
             records = self._watcher_records()
             unexpected = [
@@ -487,10 +511,13 @@ class HyprlandHotkeyBackend:
                 return
             targets = [target for target, matches in records.items() if matches]
             if targets:
-                commands = [f"keyword unbind {target}" for target in targets]
+                statements = [
+                    f'hl.unbind("{_lua_quote(_lua_bind_key(self.modifiers, target_keys[target]))}")'
+                    for target in targets
+                ]
                 if preserve_base and self._binding_target() in targets:
-                    commands.append(f"keyword bindd {self._base_press_binding()}")
-                _run_hyprctl(["--batch", " ; ".join(commands)])
+                    statements.append(self._base_press_binding())
+                _run_hyprctl(["eval", "; ".join(statements)])
             self._watchers_active = False
             _trace_hotkey(self.trace_path, "watchers", "deactivate", "removed")
         except HotkeyError as exc:
@@ -534,16 +561,18 @@ class HyprlandHotkeyBackend:
             "emit",
             str(self.socket_path),
             event,
-            binding_target or self._binding_target(),
+            binding_target or _lua_bind_key(self.modifiers, self.hypr_key),
         ]
         if self.trace_path:
             command.append(self.trace_path)
         return shlex.join(command)
 
     def _base_press_binding(self) -> str:
+        description = f"{_MURMUR_DESCRIPTION} press [{self.pid}:{self.token}]"
         return (
-            f"{self._binding_target()}, {_MURMUR_DESCRIPTION} press [{self.token}], "
-            f"exec, {self._command('press')}"
+            f'hl.bind("{_lua_quote(_lua_bind_key(self.modifiers, self.hypr_key))}", '
+            f'hl.dsp.exec_cmd("{_lua_quote(self._command("press"))}"), '
+            f'{{ description = "{_lua_quote(description)}" }})'
         )
 
     def start(self):
@@ -556,16 +585,16 @@ class HyprlandHotkeyBackend:
             os.chmod(self.socket_path, 0o600)
             self._thread = threading.Thread(target=self._serve, daemon=True)
             self._thread.start()
-            _run_hyprctl([
-                "keyword", "bindd",
-                self._base_press_binding(),
-            ])
+            _run_hyprctl(["eval", self._base_press_binding()])
             self._registered = True
             if not self.modifiers:
-                _run_hyprctl([
-                    "keyword", "binddr",
-                    f"{self._binding_target()}, {_MURMUR_DESCRIPTION} release [{self.token}], exec, {self._command('release')}",
-                ])
+                description = f"{_MURMUR_DESCRIPTION} release [{self.pid}:{self.token}]"
+                statement = (
+                    f'hl.bind("{_lua_quote(_lua_bind_key(self.modifiers, self.hypr_key))}", '
+                    f'hl.dsp.exec_cmd("{_lua_quote(self._command("release"))}"), '
+                    f'{{ description = "{_lua_quote(description)}", release = true }})'
+                )
+                _run_hyprctl(["eval", statement])
         except Exception as exc:
             self.stop()
             if isinstance(exc, HotkeyError):
@@ -576,7 +605,7 @@ class HyprlandHotkeyBackend:
         self._deactivate_release_watchers(preserve_base=False)
         if self._registered:
             try:
-                _run_hyprctl(["keyword", "unbind", self._binding_target()])
+                _run_hyprctl(["eval", f'hl.unbind("{_lua_quote(_lua_bind_key(self.modifiers, self.hypr_key))}")'])
             except HotkeyError:
                 pass
         self._registered = False
@@ -627,11 +656,16 @@ def _emit(socket_path: str, event: str, binding_target: str, trace_path: str | N
     except OSError:
         _trace_hotkey(trace_path, "helper", event, "send_failed")
         # A crashed Murmur can leave a runtime binding until the key is next
-        # pressed. Only remove it when its command still names this socket.
+        # pressed. Only remove it when a binding's own embedded pid/token
+        # identifies it as the one pointing at this exact dead socket.
         try:
+            target_path = Path(socket_path)
             records = _parse_hyprland_binds(_run_hyprctl(["binds"]))
-            if any(socket_path in record.get("arg", "") for record in records):
-                _run_hyprctl(["keyword", "unbind", binding_target])
+            for record in records:
+                match = _DESCRIPTION_IDENTITY_RE.fullmatch(record.get("description", ""))
+                if match and target_path.parent / f"hotkey-{match.group(1)}-{match.group(2)}.sock" == target_path:
+                    _run_hyprctl(["eval", f'hl.unbind("{_lua_quote(binding_target)}")'])
+                    break
         except HotkeyError:
             pass
         return 1

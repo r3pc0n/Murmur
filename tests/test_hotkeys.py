@@ -161,8 +161,8 @@ class HyprlandBackendTests(unittest.TestCase):
                 self.assertIn(f"hotkey-{hotkeys.os.getpid()}-", backend.socket_path.name)
                 calls = [call.args[0] for call in run.call_args_list]
                 self.assertEqual(len(calls), 1)
-                self.assertEqual(calls[0][:2], ["keyword", "bindd"])
-                self.assertTrue(calls[0][2].startswith("CTRL ALT, Z,"))
+                self.assertEqual(calls[0][0], "eval")
+                self.assertTrue(calls[0][1].startswith('hl.bind("CTRL + ALT + Z",'))
                 backend.stop()
             self.assertFalse(backend.socket_path.exists())
 
@@ -180,8 +180,7 @@ class HyprlandBackendTests(unittest.TestCase):
         backend = self.make_backend()
         stale = {
             "key": "F8", "modmask": "0",
-            "description": "Murmur push-to-talk press [deadbeef]",
-            "arg": "/usr/bin/python hotkeys.py emit /tmp/murmur-test-runtime/hotkey-424242-deadbeef.sock press ', F8'",
+            "description": "Murmur push-to-talk press [424242:deadbeef]",
         }
         with (
             patch("hotkeys._bindings_for_hotkey", return_value=[stale]),
@@ -189,9 +188,9 @@ class HyprlandBackendTests(unittest.TestCase):
             patch("hotkeys._run_hyprctl") as run,
         ):
             backend._cleanup_stale_binding()
-        run.assert_called_once_with(["keyword", "unbind", ", F8"])
+        run.assert_called_once_with(["eval", 'hl.unbind("F8")'])
 
-        user = {"key": "F8", "modmask": "0", "description": "User binding", "arg": "command"}
+        user = {"key": "F8", "modmask": "0", "description": "User binding"}
         with (
             patch("hotkeys._bindings_for_hotkey", return_value=[stale, user]),
             patch("hotkeys._pid_is_alive", return_value=False),
@@ -229,13 +228,14 @@ class HyprlandBackendTests(unittest.TestCase):
             backend.start()
             backend.stop()
 
-        keyword_calls = [call.args[0] for call in run.call_args_list]
-        self.assertEqual(keyword_calls[0][:2], ["keyword", "bindd"])
-        self.assertEqual(keyword_calls[1][:2], ["keyword", "binddr"])
-        self.assertIn(" emit ", keyword_calls[0][2])
-        self.assertIn(" press ", keyword_calls[0][2])
-        self.assertIn(" release ", keyword_calls[1][2])
-        self.assertEqual(keyword_calls[2], ["keyword", "unbind", ", F8"])
+        eval_calls = [call.args[0] for call in run.call_args_list]
+        self.assertEqual(eval_calls[0][0], "eval")
+        self.assertEqual(eval_calls[1][0], "eval")
+        self.assertIn(" emit ", eval_calls[0][1])
+        self.assertIn(" press ", eval_calls[0][1])
+        self.assertIn(" release ", eval_calls[1][1])
+        self.assertIn("release = true", eval_calls[1][1])
+        self.assertEqual(eval_calls[2], ["eval", 'hl.unbind("F8")'])
 
     def test_release_registration_failure_removes_press_binding(self):
         backend = self.make_backend()
@@ -244,7 +244,7 @@ class HyprlandBackendTests(unittest.TestCase):
 
         def run(args):
             calls.append(args)
-            if args[:2] == ["keyword", "binddr"]:
+            if args[0] == "eval" and "push-to-talk release" in args[1]:
                 raise hotkeys.HotkeyError("release failed")
             return ""
 
@@ -259,7 +259,7 @@ class HyprlandBackendTests(unittest.TestCase):
             with self.assertRaisesRegex(hotkeys.HotkeyError, "release failed"):
                 backend.start()
 
-        self.assertIn(["keyword", "unbind", ", F8"], calls)
+        self.assertIn(["eval", 'hl.unbind("F8")'], calls)
 
     def test_modifier_commands_and_exact_cleanup(self):
         with patch(
@@ -279,8 +279,9 @@ class HyprlandBackendTests(unittest.TestCase):
             backend.start()
             backend.stop()
         calls = [call.args[0] for call in run.call_args_list]
-        self.assertTrue(calls[0][2].startswith("CTRL ALT, Z,"))
-        self.assertEqual(calls[1], ["keyword", "unbind", "CTRL ALT, Z"])
+        self.assertEqual(calls[0][0], "eval")
+        self.assertTrue(calls[0][1].startswith('hl.bind("CTRL + ALT + Z",'))
+        self.assertEqual(calls[1], ["eval", 'hl.unbind("CTRL + ALT + Z")'])
 
     def test_socket_events_preserve_hold_semantics_and_ignore_duplicates(self):
         backend = self.make_backend()
@@ -323,7 +324,7 @@ class HyprlandBackendTests(unittest.TestCase):
         ):
             backend = hotkeys.HyprlandHotkeyBackend("ctrl+alt+z", Mock(), Mock())
         fake_socket = Mock()
-        own = f"Murmur push-to-talk watcher [{backend.token}]"
+        own = f"Murmur push-to-talk watcher [{backend.pid}:{backend.token}]"
         watcher_records = {
             target: [{"key": target.split(",", 1)[1].strip(), "modmask": "0", "description": own}]
             for target in backend._release_watcher_targets()
@@ -340,15 +341,17 @@ class HyprlandBackendTests(unittest.TestCase):
 
         register = run.call_args_list[0].args[0]
         cleanup = run.call_args_list[1].args[0]
-        self.assertEqual(register[0], "--batch")
-        self.assertIn("keyword binddrn CTRL ALT, Z,", register[1])
-        self.assertIn("keyword binddrn CTRL ALT, Control_L,", register[1])
-        self.assertIn("keyword binddrn CTRL ALT, Control_R,", register[1])
-        self.assertIn("keyword binddrn CTRL ALT, Alt_L,", register[1])
-        self.assertIn("keyword binddrn CTRL ALT, Alt_R,", register[1])
-        self.assertEqual(cleanup[0], "--batch")
-        self.assertIn("keyword unbind CTRL ALT, Z", cleanup[1])
-        self.assertIn("keyword bindd CTRL ALT, Z,", cleanup[1])
+        self.assertEqual(register[0], "eval")
+        self.assertIn('hl.bind("CTRL + ALT + Z", ', register[1])
+        self.assertIn('hl.bind("CTRL + ALT + Control_L", ', register[1])
+        self.assertIn('hl.bind("CTRL + ALT + Control_R", ', register[1])
+        self.assertIn('hl.bind("CTRL + ALT + Alt_L", ', register[1])
+        self.assertIn('hl.bind("CTRL + ALT + Alt_R", ', register[1])
+        self.assertIn("release = true, non_consuming = true", register[1])
+        self.assertEqual(cleanup[0], "eval")
+        self.assertIn('hl.unbind("CTRL + ALT + Z")', cleanup[1])
+        self.assertIn('hl.unbind("CTRL + ALT + Control_L")', cleanup[1])
+        self.assertIn('hl.bind("CTRL + ALT + Z", ', cleanup[1])
 
     def test_ctrl_alt_z_watcher_targets_use_active_modifier_mask(self):
         with patch(
