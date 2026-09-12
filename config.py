@@ -24,6 +24,9 @@ _DEFAULTS: dict = {
     "TRANSCRIPTION_MODE": "local",
     "REMOTE_WHISPER_URL": "",
     "REMOTE_WHISPER_API_KEY": "",
+    "CLOUD_PROVIDER": "voxtral",
+    "CLOUD_VOXTRAL_MODEL": "voxtral-mini-latest",
+    "CLOUD_API_KEY": "",
     "AI_CLEANUP_ENABLED": True,
     "ANTHROPIC_API_KEY": "",
     "BEEP_ENABLED": True,
@@ -61,15 +64,20 @@ def _load() -> dict:
     env_key = os.getenv("ANTHROPIC_API_KEY")
     if env_key:
         data["ANTHROPIC_API_KEY"] = env_key
+    cloud_env_key = os.getenv("MURMUR_CLOUD_API_KEY")
+    if cloud_env_key:
+        data["CLOUD_API_KEY"] = cloud_env_key
     return data
 
 
 def save(updates: dict):
     current = _load()
     current.update(updates)
-    # Don't persist the API key to disk if it came from .env
+    # Don't persist an API key to disk if it came from .env
     if os.getenv("ANTHROPIC_API_KEY"):
         current.pop("ANTHROPIC_API_KEY", None)
+    if os.getenv("MURMUR_CLOUD_API_KEY"):
+        current.pop("CLOUD_API_KEY", None)
     serialized = json.dumps(current, indent=2)
     if sys.platform == "win32":
         with open(_SETTINGS_FILE, "w") as f:

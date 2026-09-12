@@ -13,6 +13,7 @@ No subscription. No cloud. Your audio never leaves your machine - unless you cho
 - **Push-to-talk** - hold any configurable key to record, release to transcribe and paste
 - **Local transcription** - runs Whisper entirely on your own GPU or CPU, no internet required
 - **Remote transcription** - offload transcription to another machine over your local network, a VPN, or a reverse proxy
+- **Cloud transcription** - send audio to a third-party API (Mistral Voxtral) for fast transcription on lower-end or older machines, no server of your own required
 - **AI cleanup** - Claude Haiku removes filler words, fixes punctuation and capitalization, and preserves your language (Dutch, English, or mixed)
 - **Style profiles** - choose Formal, Informal, Technical, or write your own style instruction
 - **User profile** - tell Haiku who you are so it can apply context to every transcription
@@ -190,7 +191,7 @@ Open Settings from the tray icon (right-click → Settings).
 |---|---|
 | **General** | Push-to-talk key, start with system |
 | **Audio** | Input device |
-| **Transcription** | Local or remote mode, Whisper model, device and language, saved remote servers |
+| **Transcription** | Local, remote, or cloud mode, Whisper model, device and language, saved remote servers, cloud provider and API key |
 | **AI Cleanup** | Enable/disable Claude Haiku, Anthropic API key |
 | **Display** | Recording overlay, sound feedback |
 | **Profile** | Transcription style, user context, word corrections |
@@ -325,6 +326,22 @@ curl http://localhost:8765/health
 
 ---
 
+## Cloud transcription
+
+Murmur can send audio to a third-party transcription API instead of running Whisper anywhere yourself - useful on a machine too slow or battery-limited for local transcription, with no server of your own to set up or maintain.
+
+**This is a different trust boundary than remote mode above.** Remote mode sends audio to a server *you* control; cloud mode sends it to a third party's API over the internet. Only Mistral's Voxtral is supported today, chosen for its speed (typically under half a second) and low cost - check [Mistral's current pricing](https://mistral.ai/pricing) before relying on it for heavy use.
+
+### Setup
+
+1. Get a Mistral API key from [console.mistral.ai](https://console.mistral.ai)
+2. Open **Settings → Transcription**, switch to **Cloud**, and paste the key - or set the `MURMUR_CLOUD_API_KEY` environment variable (in `.env`, same as `ANTHROPIC_API_KEY` for AI cleanup) if you'd rather not store it in Settings
+3. That's it - no model download, no server to run
+
+A missing or invalid key fails the recording clearly rather than silently falling back to local transcription, so a billing or network problem is never mistaken for silence.
+
+---
+
 ## Activity log
 
 Right-click the tray icon → **Activity log** to see recent transcriptions.
@@ -369,6 +386,7 @@ Output: dist\Murmur-Setup-vX.X.exe
 
 - Audio is processed locally by default and never sent anywhere
 - When using remote mode, audio is sent over HTTP to a server you control — secure it with HTTPS (via a reverse proxy) or a VPN if used over the internet
+- When using cloud mode, audio is sent to a third-party API (Mistral) that you do not control — a different trust boundary than remote mode, not just a faster version of it
 - AI cleanup sends transcribed text (not audio) to the Anthropic API if enabled
 
 ---

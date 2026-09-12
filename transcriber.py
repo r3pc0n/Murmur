@@ -91,6 +91,9 @@ class Transcriber:
         if config.TRANSCRIPTION_MODE == "remote":
             logger.log(f"Transcription mode: remote ({config.REMOTE_WHISPER_URL})")
             return
+        if config.TRANSCRIPTION_MODE == "cloud":
+            logger.log(f"Transcription mode: cloud ({config.CLOUD_PROVIDER})")
+            return
         model_name, device, compute_type = _resolve_runtime()
         logger.log(f"Loading Whisper {model_name} on {device} ({compute_type})...")
         self.model = _create_model(model_name, device, compute_type)
@@ -99,6 +102,8 @@ class Transcriber:
     def transcribe(self, audio: np.ndarray) -> tuple[str, str]:
         if config.TRANSCRIPTION_MODE == "remote":
             return self._transcribe_remote(audio)
+        if config.TRANSCRIPTION_MODE == "cloud":
+            return self._transcribe_cloud(audio)
         return self._transcribe_local(audio)
 
     def _transcribe_local(self, audio: np.ndarray) -> tuple[str, str]:
@@ -132,3 +137,26 @@ class Transcriber:
         resp.raise_for_status()
         data = resp.json()
         return data["text"], data["language"]
+
+    def _transcribe_cloud(self, audio: np.ndarray) -> tuple[str, str]:
+        if not config.CLOUD_API_KEY:
+            raise RuntimeError(
+                "Cloud transcription is enabled but no API key is configured."
+            )
+        provider = config.CLOUD_PROVIDER
+        if provider == "voxtral":
+            return self._transcribe_voxtral(audio)
+        raise RuntimeError(f"Unknown cloud transcription provider: {provider!r}")
+
+    def _transcribe_voxtral(self, audio: np.ndarray) -> tuple[str, str]:
+        wav = _to_wav_bytes(audio)
+        resp = requests.post(
+            "https://api.mistral.ai/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {config.CLOUD_API_KEY}"},
+            data={"model": config.CLOUD_VOXTRAL_MODEL},
+            files={"file": ("utterance.wav", wav, "audio/wav")},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        # Voxtral's response has no language field, unlike local/remote Whisper.
+        return str(resp.json().get("text", "")).strip(), ""

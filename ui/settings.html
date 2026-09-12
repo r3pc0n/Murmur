@@ -456,6 +456,7 @@
             <div class="seg-ctrl">
               <button class="seg-btn active" onclick="setMode('local')">Local</button>
               <button class="seg-btn inactive" onclick="setMode('remote')">Remote</button>
+              <button class="seg-btn inactive" onclick="setMode('cloud')">Cloud</button>
             </div>
           </div>
 
@@ -517,6 +518,34 @@
               <input type="password" id="remote-key" placeholder="Enter API key">
             </div>
             <button class="btn-ghost btn-sm" onclick="saveServerAs()">Save current as…</button>
+          </div>
+
+          <!-- Cloud -->
+          <div id="cloud-panel" style="display:none">
+            <div class="inline-warn">
+              <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                <path d="M6.5 1.5L12 11.5H1L6.5 1.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                <line x1="6.5" y1="5.5" x2="6.5" y2="8.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                <circle cx="6.5" cy="10" r="0.6" fill="currentColor"/>
+              </svg>
+              Audio is sent to a third-party API, not a server you control.
+            </div>
+            <div class="field-group">
+              <div class="field-label">Provider</div>
+              <select id="cloud-provider" style="max-width:220px">
+                <option value="voxtral">Mistral Voxtral</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <div class="field-label">Model</div>
+              <select id="cloud-model" style="max-width:220px">
+                <option value="voxtral-mini-latest">voxtral-mini-latest</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <div class="field-label">API key</div>
+              <input type="password" id="cloud-key" placeholder="Enter API key">
+            </div>
           </div>
         </div>
 
@@ -673,15 +702,17 @@
     el.classList.toggle('off', !value);
   }
 
-  // ── Mode (local/remote) ────────────────────────────────────────────────────
+  // ── Mode (local/remote/cloud) ────────────────────────────────────────────────
+  const MODES = ['local', 'remote', 'cloud'];
   function setMode(mode) {
     document.querySelectorAll('#panel-transcription .seg-btn').forEach((btn, i) => {
-      const m = i === 0 ? 'local' : 'remote';
+      const m = MODES[i];
       btn.classList.toggle('active', m === mode);
       btn.classList.toggle('inactive', m !== mode);
     });
     document.getElementById('local-panel').style.display  = mode === 'local'  ? '' : 'none';
     document.getElementById('remote-panel').style.display = mode === 'remote' ? '' : 'none';
+    document.getElementById('cloud-panel').style.display  = mode === 'cloud'  ? '' : 'none';
     cfg.TRANSCRIPTION_MODE = mode;
   }
 
@@ -834,6 +865,9 @@
     document.getElementById('remote-url').value = cfg.REMOTE_WHISPER_URL || '';
     document.getElementById('remote-key').value = cfg.REMOTE_WHISPER_API_KEY || '';
     populateServers(cfg.SAVED_SERVERS);
+    setSelectVal('cloud-provider', cfg.CLOUD_PROVIDER || 'voxtral');
+    setSelectVal('cloud-model', cfg.CLOUD_VOXTRAL_MODEL || 'voxtral-mini-latest');
+    document.getElementById('cloud-key').value = cfg.CLOUD_API_KEY || '';
 
     // AI Cleanup
     setToggle('toggle-ai', cfg.AI_CLEANUP_ENABLED);
@@ -921,6 +955,10 @@
       updates.WHISPER_MODEL  = document.getElementById('whisper-model').value;
       updates.WHISPER_DEVICE = document.getElementById('whisper-device').value;
       updates.WHISPER_COMPUTE_TYPE = updates.WHISPER_DEVICE === 'cuda' ? 'float16' : 'int8';
+    } else if (mode === 'cloud') {
+      updates.CLOUD_PROVIDER      = document.getElementById('cloud-provider').value;
+      updates.CLOUD_VOXTRAL_MODEL = document.getElementById('cloud-model').value;
+      updates.CLOUD_API_KEY       = document.getElementById('cloud-key').value.trim();
     }
 
     await window.pywebview.api.save_settings(updates, restart);

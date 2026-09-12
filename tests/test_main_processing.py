@@ -17,7 +17,7 @@ import main
 
 class ProcessingPipelineTests(unittest.TestCase):
     def test_cleaned_text_is_logged_and_passed_to_insertion_for_all_modes(self):
-        for mode in ("local", "remote"):
+        for mode in ("local", "remote", "cloud"):
             with self.subTest(mode=mode):
                 transcriber = Mock()
                 transcriber.transcribe.return_value = ("RAW_TEXT", "nl")

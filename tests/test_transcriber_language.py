@@ -93,5 +93,54 @@ class RemoteLanguageTests(unittest.TestCase):
                 self.assertEqual(result, ("test", selected or "nl"))
 
 
+class CloudVoxtralTests(unittest.TestCase):
+    def test_missing_key_raises_before_any_request(self):
+        with (
+            patch.object(config, "CLOUD_API_KEY", ""),
+            patch("transcriber.requests.post") as post,
+        ):
+            with self.assertRaises(RuntimeError):
+                transcriber.Transcriber()._transcribe_cloud(np.zeros(1, dtype=np.float32))
+        post.assert_not_called()
+
+    def test_unknown_provider_raises_before_any_request(self):
+        with (
+            patch.object(config, "CLOUD_API_KEY", "key"),
+            patch.object(config, "CLOUD_PROVIDER", "not-a-real-provider"),
+            patch("transcriber.requests.post") as post,
+        ):
+            with self.assertRaises(RuntimeError):
+                transcriber.Transcriber()._transcribe_cloud(np.zeros(1, dtype=np.float32))
+        post.assert_not_called()
+
+    def test_voxtral_request_shape_and_response(self):
+        response = Mock()
+        response.json.return_value = {"text": " test "}
+        with (
+            patch.object(config, "CLOUD_API_KEY", "secret-key"),
+            patch.object(config, "CLOUD_PROVIDER", "voxtral"),
+            patch.object(config, "CLOUD_VOXTRAL_MODEL", "voxtral-mini-latest"),
+            patch("transcriber._to_wav_bytes", return_value=b"wav"),
+            patch("transcriber.requests.post", return_value=response) as post,
+        ):
+            result = transcriber.Transcriber()._transcribe_cloud(
+                np.zeros(1, dtype=np.float32)
+            )
+
+        self.assertEqual(
+            post.call_args.args[0], "https://api.mistral.ai/v1/audio/transcriptions"
+        )
+        self.assertEqual(
+            post.call_args.kwargs["headers"], {"Authorization": "Bearer secret-key"}
+        )
+        self.assertEqual(
+            post.call_args.kwargs["data"], {"model": "voxtral-mini-latest"}
+        )
+        self.assertEqual(
+            post.call_args.kwargs["files"], {"file": ("utterance.wav", b"wav", "audio/wav")}
+        )
+        self.assertEqual(result, ("test", ""))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -86,6 +86,18 @@ class RuntimeResolutionTests(unittest.TestCase):
 
         create_model.assert_called_once_with("large-v3", "cpu", "int8")
 
+    def test_load_skips_local_model_in_cloud_mode(self):
+        with (
+            patch.object(config, "TRANSCRIPTION_MODE", "cloud"),
+            patch.object(config, "CLOUD_PROVIDER", "voxtral"),
+            patch("transcriber._create_model") as create_model,
+            patch("transcriber.logger.log"),
+        ):
+            instance = transcriber.Transcriber()
+            instance.load()
+
+        create_model.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
