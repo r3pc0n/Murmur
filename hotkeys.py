@@ -25,6 +25,8 @@ _SELECTABLE_KEYS = (
     *tuple("abcdefghijklmnopqrstuvwxyz"),
     *tuple("0123456789"),
     "space",
+    "page_up",
+    "page_down",
 )
 _MODIFIER_ORDER = ("ctrl", "alt", "shift", "super")
 _HYPRLAND_MODIFIERS = {"ctrl": "CTRL", "alt": "ALT", "shift": "SHIFT", "super": "SUPER"}
