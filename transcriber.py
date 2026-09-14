@@ -1,5 +1,8 @@
+import ctypes
+import importlib.util
 import io
 import wave
+from pathlib import Path
 
 import numpy as np
 import requests
@@ -9,6 +12,29 @@ import logger
 
 
 _CPU_COMPUTE_PREFERENCE = ("int8", "int8_float32", "int16", "float32")
+
+# CTranslate2's CUDA path dlopen()s cuBLAS/cuDNN itself and, unlike PyTorch,
+# does not bundle them or locate pip-installed nvidia-*-cu12 wheels on its
+# own -- it only finds them via LD_LIBRARY_PATH set *before* the process
+# starts, which is fragile across desktop entry / systemd / shell launches.
+# Preloading them here with RTLD_GLOBAL makes them available to CTranslate2
+# regardless of how Murmur was launched.
+_CUDA_LIBRARIES = (
+    ("nvidia.cublas.lib", "libcublas.so.12"),
+    ("nvidia.cudnn.lib", "libcudnn.so.9"),
+)
+
+
+def _preload_cuda_libraries() -> None:
+    for package, library in _CUDA_LIBRARIES:
+        spec = importlib.util.find_spec(package)
+        if spec is None or not spec.submodule_search_locations:
+            continue
+        lib_dir = Path(next(iter(spec.submodule_search_locations)))
+        try:
+            ctypes.CDLL(str(lib_dir / library), mode=ctypes.RTLD_GLOBAL)
+        except OSError:
+            pass
 
 
 def _language_argument() -> str | None:
@@ -51,6 +77,9 @@ def _resolve_runtime() -> tuple[str, str, str]:
     model_name = config.WHISPER_MODEL
     device = config.WHISPER_DEVICE
     compute_type = config.WHISPER_COMPUTE_TYPE
+
+    if device == "cuda":
+        _preload_cuda_libraries()
 
     if device != "cuda" or _cuda_available(compute_type):
         return model_name, device, compute_type

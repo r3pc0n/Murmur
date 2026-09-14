@@ -24,6 +24,8 @@ huggingface-hub==1.27.0
 idna==3.18
 keyboard==0.13.5
 numpy==2.5.1
+nvidia-cublas-cu12==12.4.5.8
+nvidia-cudnn-cu12==9.1.0.70
 onnxruntime==1.28.0
 packaging==26.2
 pillow==12.3.0
