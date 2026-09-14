@@ -1,7 +1,6 @@
 import ctypes
 import importlib.util
 import io
-import threading
 import wave
 from collections.abc import Callable
 from pathlib import Path
@@ -75,72 +74,56 @@ def _create_model(model_name: str, device: str, compute_type: str):
     return WhisperModel(model_name, device=device, compute_type=compute_type)
 
 
-def _download_blobs_dir(model_name: str) -> Path | None:
-    """Resolve the Hugging Face cache dir a first-run download for
-    model_name would land in, or None if it can't be determined (e.g.
-    model_name is already a local path)."""
-    from faster_whisper.utils import _MODELS
-    from huggingface_hub import constants
-    from huggingface_hub.file_download import repo_folder_name
+def _install_progress_forwarder(on_progress: Callable[[str, int | None], None]):
+    """Patch faster-whisper's disabled_tqdm class so its update() calls
+    forward real progress to on_progress instead of doing nothing, so the
+    splash shows real movement for every file a first-run download touches
+    (config, tokenizer, and the model weights).
 
-    repo_id = model_name if "/" in model_name else _MODELS.get(model_name)
-    if repo_id is None:
-        return None
-    folder = repo_folder_name(repo_id=repo_id, repo_type="model")
-    return Path(constants.HF_HUB_CACHE) / folder / "blobs"
+    faster_whisper.utils.download_model() explicitly passes
+    tqdm_class=disabled_tqdm to huggingface_hub.snapshot_download() -- a
+    plain tqdm subclass with disable forced True and no override of
+    update(), which (per stock tqdm) no-ops immediately once disabled.
+    That's deliberate on faster-whisper's part (a library shouldn't spam a
+    consumer's console), but it also means patching huggingface_hub's own
+    progress-bar class -- the more obvious target -- never gets a chance to
+    run: faster_whisper substitutes this class before huggingface_hub's own
+    tqdm_class resolution is ever consulted, for both of huggingface_hub's
+    transfer backends (classic HTTP and the Xet CAS client) alike, since
+    both end up creating their bars through this same disabled_tqdm class.
 
+    Watching the cache dir for a growing *.incomplete blob, the previous
+    approach, only ever reflected classic HTTP transfers -- a Xet-backed
+    download (the default whenever hf_xet is installed) never touches that
+    file and left the splash stuck on an indeterminate spinner despite real
+    progress happening underneath.
+    """
+    from faster_whisper.utils import disabled_tqdm
 
-def _model_weight_size(model_name: str) -> int | None:
-    """HEAD the model's primary weight file to get its total size, so
-    progress can be reported as a real percentage. Best-effort -- returns
-    None on any failure and callers fall back to a downloaded-MB count."""
-    from faster_whisper.utils import _MODELS
+    original_update = disabled_tqdm.update
 
-    repo_id = model_name if "/" in model_name else _MODELS.get(model_name)
-    if repo_id is None:
-        return None
-    try:
-        resp = requests.head(
-            f"https://huggingface.co/{repo_id}/resolve/main/model.bin",
-            allow_redirects=True,
-            timeout=5,
-        )
-        size = resp.headers.get("Content-Length") or resp.headers.get("X-Linked-Size")
-        return int(size) if size else None
-    except (requests.RequestException, ValueError, TypeError):
-        return None
-
-
-def _watch_download_progress(
-    model_name: str,
-    on_progress: Callable[[str, int | None], None],
-    stop_event: threading.Event,
-) -> None:
-    """Poll the model's cache dir for growing *.incomplete files (a
-    first-run download in progress) and report progress via on_progress,
-    so the splash screen shows real movement instead of a static message
-    that reads as stuck during a multi-minute download."""
-    blobs_dir = _download_blobs_dir(model_name)
-    if blobs_dir is None:
-        return
-    total_size = _model_weight_size(model_name)
-    last_mb = -1
-    while not stop_event.wait(1.0):
-        try:
-            downloaded = sum(f.stat().st_size for f in blobs_dir.glob("*.incomplete"))
-        except OSError:
-            continue
-        if downloaded == 0:
-            continue
-        mb = downloaded // (1024 * 1024)
-        if mb == last_mb:
-            continue
-        last_mb = mb
-        if total_size:
-            percent = min(100, round(downloaded / total_size * 100))
-            on_progress(f"Downloading {model_name} model... {percent}%", percent)
+    # Deliberately does not call original_update(): stock tqdm's update()
+    # no-ops entirely once disabled, which disabled_tqdm always forces, so
+    # self.n would never move.
+    def _patched_update(self, n=1):
+        # tqdm's own constructor, when disabled (always true for
+        # disabled_tqdm), sets self.n and self.total but returns before
+        # setting self.desc at all -- getattr() rather than direct access.
+        self.n += n
+        total = self.total
+        label = getattr(self, "desc", None) or "model"
+        if total:
+            percent = min(100, round(self.n / total * 100))
+            on_progress(f"Downloading {label}... {percent}%", percent)
         else:
-            on_progress(f"Downloading {model_name} model... {mb} MB", None)
+            on_progress(f"Downloading {label}... {self.n // (1024 * 1024)} MB", None)
+
+    disabled_tqdm.update = _patched_update
+    return disabled_tqdm, original_update
+
+
+def _uninstall_progress_forwarder(tqdm_cls, original_update) -> None:
+    tqdm_cls.update = original_update
 
 
 def _resolve_runtime() -> tuple[str, str, str]:
@@ -196,21 +179,12 @@ class Transcriber:
         model_name, device, compute_type = _resolve_runtime()
         logger.log(f"Loading Whisper {model_name} on {device} ({compute_type})...")
 
-        watcher = None
-        stop_event = threading.Event()
-        if on_progress is not None:
-            watcher = threading.Thread(
-                target=_watch_download_progress,
-                args=(model_name, on_progress, stop_event),
-                daemon=True,
-            )
-            watcher.start()
+        patch = _install_progress_forwarder(on_progress) if on_progress is not None else None
         try:
             self.model = _create_model(model_name, device, compute_type)
         finally:
-            stop_event.set()
-            if watcher is not None:
-                watcher.join(timeout=2.0)
+            if patch is not None:
+                _uninstall_progress_forwarder(*patch)
         logger.log("Whisper model ready.", level="OK")
 
     def transcribe(self, audio: np.ndarray) -> tuple[str, str]:
