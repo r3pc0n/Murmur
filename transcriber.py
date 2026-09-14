@@ -1,7 +1,9 @@
 import ctypes
 import importlib.util
 import io
+import threading
 import wave
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -73,6 +75,74 @@ def _create_model(model_name: str, device: str, compute_type: str):
     return WhisperModel(model_name, device=device, compute_type=compute_type)
 
 
+def _download_blobs_dir(model_name: str) -> Path | None:
+    """Resolve the Hugging Face cache dir a first-run download for
+    model_name would land in, or None if it can't be determined (e.g.
+    model_name is already a local path)."""
+    from faster_whisper.utils import _MODELS
+    from huggingface_hub import constants
+    from huggingface_hub.file_download import repo_folder_name
+
+    repo_id = model_name if "/" in model_name else _MODELS.get(model_name)
+    if repo_id is None:
+        return None
+    folder = repo_folder_name(repo_id=repo_id, repo_type="model")
+    return Path(constants.HF_HUB_CACHE) / folder / "blobs"
+
+
+def _model_weight_size(model_name: str) -> int | None:
+    """HEAD the model's primary weight file to get its total size, so
+    progress can be reported as a real percentage. Best-effort -- returns
+    None on any failure and callers fall back to a downloaded-MB count."""
+    from faster_whisper.utils import _MODELS
+
+    repo_id = model_name if "/" in model_name else _MODELS.get(model_name)
+    if repo_id is None:
+        return None
+    try:
+        resp = requests.head(
+            f"https://huggingface.co/{repo_id}/resolve/main/model.bin",
+            allow_redirects=True,
+            timeout=5,
+        )
+        size = resp.headers.get("Content-Length") or resp.headers.get("X-Linked-Size")
+        return int(size) if size else None
+    except (requests.RequestException, ValueError, TypeError):
+        return None
+
+
+def _watch_download_progress(
+    model_name: str,
+    on_progress: Callable[[str, int | None], None],
+    stop_event: threading.Event,
+) -> None:
+    """Poll the model's cache dir for growing *.incomplete files (a
+    first-run download in progress) and report progress via on_progress,
+    so the splash screen shows real movement instead of a static message
+    that reads as stuck during a multi-minute download."""
+    blobs_dir = _download_blobs_dir(model_name)
+    if blobs_dir is None:
+        return
+    total_size = _model_weight_size(model_name)
+    last_mb = -1
+    while not stop_event.wait(1.0):
+        try:
+            downloaded = sum(f.stat().st_size for f in blobs_dir.glob("*.incomplete"))
+        except OSError:
+            continue
+        if downloaded == 0:
+            continue
+        mb = downloaded // (1024 * 1024)
+        if mb == last_mb:
+            continue
+        last_mb = mb
+        if total_size:
+            percent = min(100, round(downloaded / total_size * 100))
+            on_progress(f"Downloading {model_name} model... {percent}%", percent)
+        else:
+            on_progress(f"Downloading {model_name} model... {mb} MB", None)
+
+
 def _resolve_runtime() -> tuple[str, str, str]:
     model_name = config.WHISPER_MODEL
     device = config.WHISPER_DEVICE
@@ -116,7 +186,7 @@ class Transcriber:
     def __init__(self):
         self.model = None
 
-    def load(self):
+    def load(self, on_progress: Callable[[str, int | None], None] | None = None):
         if config.TRANSCRIPTION_MODE == "remote":
             logger.log(f"Transcription mode: remote ({config.REMOTE_WHISPER_URL})")
             return
@@ -125,7 +195,22 @@ class Transcriber:
             return
         model_name, device, compute_type = _resolve_runtime()
         logger.log(f"Loading Whisper {model_name} on {device} ({compute_type})...")
-        self.model = _create_model(model_name, device, compute_type)
+
+        watcher = None
+        stop_event = threading.Event()
+        if on_progress is not None:
+            watcher = threading.Thread(
+                target=_watch_download_progress,
+                args=(model_name, on_progress, stop_event),
+                daemon=True,
+            )
+            watcher.start()
+        try:
+            self.model = _create_model(model_name, device, compute_type)
+        finally:
+            stop_event.set()
+            if watcher is not None:
+                watcher.join(timeout=2.0)
         logger.log("Whisper model ready.", level="OK")
 
     def transcribe(self, audio: np.ndarray) -> tuple[str, str]:

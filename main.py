@@ -468,7 +468,7 @@ def _background_init():
     if splash:
         splash.update_status(f"Loading speech model ({config.WHISPER_MODEL})...")
     logger.log_startup(f"Loading speech model ({config.WHISPER_MODEL} on {config.WHISPER_DEVICE})...")
-    transcriber.load()
+    transcriber.load(on_progress=splash.update_status if splash else None)
     logger.log_startup("Speech model ready.")
 
     if splash:

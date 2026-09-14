@@ -47,12 +47,18 @@ class SplashScreen:
         self._window.events.loaded += lambda: apply_title_bar_theme(self._window)
         return self._window
 
-    def update_status(self, text: str):
-        if self._window:
-            safe = text.replace("\\", "\\\\").replace("'", "\\'")
-            self._window.evaluate_js(
-                f"var el = document.getElementById('status'); if (el) el.textContent = '{safe}';"
-            )
+    def update_status(self, text: str, percent: int | None = None):
+        if not self._window:
+            return
+        safe = text.replace("\\", "\\\\").replace("'", "\\'")
+        js = f"var el = document.getElementById('status'); if (el) el.textContent = '{safe}';"
+        js += "var f = document.querySelector('.bar-fill');"
+        if percent is None:
+            js += "if (f) f.classList.remove('determinate');"
+        else:
+            pct = max(0, min(100, percent))
+            js += f"if (f) {{ f.classList.add('determinate'); f.style.width = '{pct}%'; }}"
+        self._window.evaluate_js(js)
 
     def hide(self):
         if self._window:
