@@ -57,12 +57,12 @@ System package names are distribution-specific. Install the appropriate set befo
 
 ```bash
 sudo pacman -S --needed \
-  python tk portaudio pipewire pipewire-pulse wireplumber \
+  python portaudio pipewire pipewire-pulse wireplumber \
   gtk3 webkit2gtk-4.1 python-gobject python-cairo \
-  libayatana-appindicator wtype xdg-utils
+  libayatana-appindicator gtk-layer-shell wtype xdg-utils
 ```
 
-Hyprland users also need `hyprland`, which provides `hyprctl`. For an actual X11 session, install `xdotool`; it is not required for a native Wayland-only installation.
+Hyprland users also need `hyprland`, which provides `hyprctl`. For an actual X11 session, install `xdotool`; it is not required for a native Wayland-only installation. Note the recording overlay itself needs Wayland's layer-shell protocol specifically and stays hidden under a pure X11 session regardless.
 
 #### Debian / Ubuntu
 
@@ -70,13 +70,13 @@ Package availability varies by release. On current Debian/Ubuntu releases using 
 
 ```bash
 sudo apt install \
-  python3 python3-venv python3-tk python3-gi python3-gi-cairo \
-  gir1.2-gtk-3.0 gir1.2-webkit2-4.1 \
+  python3 python3-venv python3-gi python3-gi-cairo \
+  gir1.2-gtk-3.0 gir1.2-webkit2-4.1 gir1.2-gtklayershell-0.1 \
   libayatana-appindicator3-1 gir1.2-ayatanaappindicator3-0.1 \
   libportaudio2 pipewire pipewire-pulse wireplumber wtype xdg-utils
 ```
 
-Older releases may use WebKitGTK 4.0 or `libappindicator3` package names instead. For an actual X11 session, install `xdotool`. Development headers such as `python3-dev`, `libcairo2-dev`, `libgirepository-2.0-dev`, and `build-essential` are only needed when a Python dependency must be compiled locally.
+Older releases may use WebKitGTK 4.0 or `libappindicator3` package names instead; the layer-shell typelib package name is unverified on Debian/Ubuntu specifically (confirmed working as `gtk-layer-shell` on Arch) -- check your release's package search if `gir1.2-gtklayershell-0.1` isn't found. For an actual X11 session, install `xdotool` -- note the recording overlay itself needs Wayland's layer-shell protocol and stays hidden under X11 regardless. Development headers such as `python3-dev`, `libcairo2-dev`, `libgirepository-2.0-dev`, and `build-essential` are only needed when a Python dependency must be compiled locally.
 
 A StatusNotifier/AppIndicator tray host is required for tray visibility. Waybar with its tray module is one validated implementation; GNOME users commonly need an AppIndicator extension. Murmur does not install or configure the tray host.
 

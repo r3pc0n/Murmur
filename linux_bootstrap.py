@@ -43,7 +43,7 @@ def missing_executables(
 
 def _check_python_capabilities() -> list[str]:
     missing = []
-    for module, label in (("tkinter", "Tk"), ("gi", "PyGObject"), ("cairo", "Cairo")):
+    for module, label in (("gi", "PyGObject"), ("cairo", "Cairo")):
         try:
             importlib.import_module(module)
         except Exception:
@@ -85,6 +85,21 @@ def _check_python_capabilities() -> list[str]:
     if not indicator_available:
         missing.append("AppIndicator typelib")
     return missing
+
+
+def layer_shell_available() -> bool:
+    """Whether gtk-layer-shell is importable. Not a hard requirement --
+    the recording overlay (the only feature that needs it) degrades to
+    silently not showing if it's missing, so this isn't added to
+    _check_python_capabilities()'s blocking list; check() below surfaces
+    it as a warning instead."""
+    try:
+        import gi
+        gi.require_version("GtkLayerShell", "0.1")
+        importlib.import_module("gi.repository.GtkLayerShell")
+        return True
+    except Exception:
+        return False
 
 
 def desktop_quote(value: str) -> str:
@@ -154,6 +169,11 @@ def check() -> int:
         return 1
     print("Linux capability checks passed.")
     print("A StatusNotifier tray host must be running for the Murmur tray icon to be visible.")
+    if not layer_shell_available():
+        print(
+            "gtk-layer-shell is not installed -- the recording overlay will stay "
+            "hidden until it is (see README.md). Everything else works normally."
+        )
     return 0
 
 

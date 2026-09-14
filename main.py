@@ -429,24 +429,11 @@ def _quit():
             pass
 
 
-# ── Overlay (plain tkinter in its own thread) ─────────────────────────────────
+# ── Overlay ────────────────────────────────────────────────────────────────────
 
-def _start_overlay_thread():
+def _create_overlay():
     global _overlay
-    import tkinter as tk
-
-    ready = threading.Event()
-
-    def _run():
-        global _overlay
-        tk_root = tk.Tk()
-        tk_root.withdraw()
-        _overlay = RecordingOverlay(tk_root)
-        ready.set()
-        tk_root.mainloop()
-
-    threading.Thread(target=_run, daemon=True).start()
-    ready.wait(timeout=3)
+    _overlay = RecordingOverlay()
 
 
 # ── Background init ───────────────────────────────────────────────────────────
@@ -559,7 +546,7 @@ def main():
     splash = SplashScreen()
     splash.create()
 
-    _start_overlay_thread()
+    _create_overlay()
 
     _icon_path = _build_transparent_ico()
 
